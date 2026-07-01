@@ -9,11 +9,12 @@
 
 ## Architecture
 - **Frontend**: React (CRA + CRACO), Tailwind CSS, Shadcn UI, React Router v7, Recharts
-- **Backend**: FastAPI (Python), Motor (async MongoDB driver), openpyxl
+- **Backend**: FastAPI (Python 3.11), Motor (async MongoDB driver), openpyxl
 - **Database**: MongoDB
 - **Auth**: JWT in httpOnly cookies, bcrypt password hashing
-- **Storage**: Emergent Object Storage (for uploaded Excel files)
+- **Storage**: Emergent Object Storage (called via plain `requests`, no SDK)
 - **Timezone**: Asia/Kuala_Lumpur (MYT) for all report date logic
+- **Deployment**: Render — Root: `backend/`, Build: `pip install -r requirements.txt`, Start: `uvicorn server:app --host 0.0.0.0 --port $PORT`, runtime: `python-3.11.9`
 
 ---
 

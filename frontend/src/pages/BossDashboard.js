@@ -3,10 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { API } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import StatusBadge from '@/components/StatusBadge';
-import { Users, UserCheck, FileText, AlertTriangle, Clock, Phone, TrendingUp, Search, ExternalLink, RefreshCw } from 'lucide-react';
+import {
+  Users, UserCheck, FileText, AlertTriangle, Clock,
+  Phone, TrendingUp, Search, ExternalLink, RefreshCw
+} from 'lucide-react';
 import { format } from 'date-fns';
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, Cell
+} from 'recharts';
 
-const formatDate = (d) => { try { return format(new Date(d + 'T00:00:00'), 'dd MMM yyyy'); } catch { return d; } };
+const formatDate = (d) => {
+  try { return format(new Date(d + 'T00:00:00'), 'dd MMM yyyy'); }
+  catch { return d; }
+};
 
 const StatCard = ({ icon: Icon, label, value, color = 'blue', highlight }) => {
   const colors = {
@@ -18,8 +28,10 @@ const StatCard = ({ icon: Icon, label, value, color = 'blue', highlight }) => {
     purple: 'bg-purple-50 text-purple-700',
   };
   return (
-    <div className={`bg-white border rounded-lg p-4 flex items-start gap-4 shadow-sm ${highlight ? 'border-red-300' : 'border-slate-200'}`}
-      data-testid={`stat-${label.toLowerCase().replace(/ /g, '-')}`}>
+    <div
+      className={`bg-white border rounded-lg p-4 flex items-start gap-4 shadow-sm ${highlight ? 'border-red-300' : 'border-slate-200'}`}
+      data-testid={`stat-${label.toLowerCase().replace(/ /g, '-')}`}
+    >
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${colors[color]}`}>
         <Icon className="w-5 h-5" />
       </div>
@@ -31,10 +43,18 @@ const StatCard = ({ icon: Icon, label, value, color = 'blue', highlight }) => {
   );
 };
 
+const SectionHeader = ({ title, subtitle }) => (
+  <div className="mb-3">
+    <h2 className="font-semibold text-slate-900 text-sm">{title}</h2>
+    {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+  </div>
+);
+
 export default function BossDashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [missingData, setMissingData] = useState(null);
+  const [chartData, setChartData] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -46,14 +66,16 @@ export default function BossDashboard() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [statsRes, missingRes, empRes] = await Promise.all([
+      const [statsRes, missingRes, empRes, chartRes] = await Promise.all([
         API.get('/dashboard/stats'),
         API.get('/dashboard/missing-today'),
-        API.get('/users?role=employee&status=active')
+        API.get('/users?role=employee&status=active'),
+        API.get('/dashboard/boss-charts'),
       ]);
       setStats(statsRes.data);
       setMissingData(missingRes.data);
       setEmployees(empRes.data || []);
+      setChartData(chartRes.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -79,22 +101,48 @@ export default function BossDashboard() {
   };
 
   const filteredEmployees = employees.filter(e =>
-    !search || e.full_name?.toLowerCase().includes(search.toLowerCase()) || e.email?.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    e.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+    e.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Build activity chart data from stats
+  const activityData = stats ? [
+    { name: 'Calls', value: stats.total_calls_this_week, fill: '#3b82f6' },
+    { name: 'Follow-ups', value: stats.total_followups_this_week, fill: '#8b5cf6' },
+    { name: 'Leads', value: stats.total_leads_this_week, fill: '#10b981' },
+  ] : [];
+
+  // Submitted vs Missing
+  const reportStatusData = stats ? [
+    { name: 'Submitted', value: stats.reports_today, fill: '#10b981' },
+    { name: 'Missing', value: stats.missing_today, fill: '#ef4444' },
+  ] : [];
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar />
       <main className="flex-1 md:ml-60 p-4 md:p-6 pt-16 md:pt-6 space-y-6">
+
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>Boss Dashboard</h1>
+            <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
+              Boss Dashboard
+            </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               {stats?.today ? formatDate(stats.today) : ''}
-              {stats && !stats.is_working_day && <span className="ml-2 text-amber-600">(Non-working day)</span>}
+              {stats && !stats.is_working_day && (
+                <span className="ml-2 text-amber-600">(Non-working day)</span>
+              )}
             </p>
           </div>
-          <button onClick={fetchAll} className="p-2 border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors" title="Refresh">
+          <button
+            onClick={fetchAll}
+            className="p-2 border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors"
+            title="Refresh"
+            data-testid="refresh-btn"
+          >
             <RefreshCw className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -154,6 +202,131 @@ export default function BossDashboard() {
               </div>
             )}
 
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-testid="boss-charts">
+
+              {/* Task Status Breakdown */}
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                <SectionHeader
+                  title="Task Status Breakdown"
+                  subtitle={`This week (${chartData?.week_start} – ${chartData?.week_end})`}
+                />
+                {chartData?.task_breakdown?.every(d => d.count === 0) ? (
+                  <div className="h-44 flex items-center justify-center text-slate-400 text-sm">
+                    No report data for this week yet
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={chartData?.task_breakdown || []} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="status" tick={{ fontSize: 11, fill: '#64748b' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}
+                        formatter={(v) => [v, 'Reports']}
+                      />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {(chartData?.task_breakdown || []).map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Team Activity This Week */}
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                <SectionHeader
+                  title="Team Activity This Week"
+                  subtitle="Calls, follow-ups, and interested leads"
+                />
+                {activityData.every(d => d.value === 0) ? (
+                  <div className="h-44 flex items-center justify-center text-slate-400 text-sm">
+                    No activity recorded yet this week
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={activityData} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}
+                        formatter={(v, n) => [v, n]}
+                      />
+                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        {activityData.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Submitted vs Missing Today */}
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                <SectionHeader title="Submitted vs Missing Today" subtitle="Today's report coverage" />
+                {reportStatusData.every(d => d.value === 0) ? (
+                  <div className="h-44 flex items-center justify-center text-slate-400 text-sm">
+                    No data yet for today
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={reportStatusData} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}
+                        formatter={(v) => [v, 'Employees']}
+                      />
+                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        {reportStatusData.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Weekly Performance Score Trend */}
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                <SectionHeader
+                  title="Weekly Performance Score Trend"
+                  subtitle="Avg team score across last 6 weeks (0–100)"
+                />
+                {chartData?.score_trend?.every(d => d.avg_score === 0) ? (
+                  <div className="h-44 flex items-center justify-center text-slate-400 text-sm">
+                    Generate weekly summaries to see score trends
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={chartData?.score_trend || []} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#64748b' }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}
+                        formatter={(v) => [`${v}/100`, 'Avg Score']}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="avg_score"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={{ r: 4, fill: '#3b82f6' }}
+                        activeDot={{ r: 6 }}
+                        name="Avg Score"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
             {/* Weekly Summary Auto-Generate */}
             <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="flex-1">
@@ -161,7 +334,9 @@ export default function BossDashboard() {
                 <p className="text-xs text-slate-500 mt-0.5">
                   Auto-generates on Saturday after 6 PM MYT. Current week: {stats?.week_start} to {stats?.week_end}
                 </p>
-                {autoGenMsg && <p className="text-xs text-slate-600 mt-1 bg-slate-50 px-2 py-1 rounded">{autoGenMsg}</p>}
+                {autoGenMsg && (
+                  <p className="text-xs text-slate-600 mt-1 bg-slate-50 px-2 py-1 rounded">{autoGenMsg}</p>
+                )}
               </div>
               <button
                 data-testid="auto-generate-btn"
@@ -176,7 +351,9 @@ export default function BossDashboard() {
             {/* Employee Search */}
             <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
               <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-4">
-                <h2 className="font-semibold text-slate-900 text-sm shrink-0">Active Employees ({employees.length})</h2>
+                <h2 className="font-semibold text-slate-900 text-sm shrink-0">
+                  Active Employees ({employees.length})
+                </h2>
                 <div className="relative flex-1 max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input

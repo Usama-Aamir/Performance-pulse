@@ -917,6 +917,51 @@ async def get_dashboard_stats(current_user: dict = Depends(require_admin)):
         "week_end": week_end_str
     }
 
+@api_router.get("/dashboard/boss-charts")
+async def get_boss_charts(current_user: dict = Depends(require_admin)):
+    """Returns aggregated chart data for Boss Dashboard visualizations."""
+    monday, saturday = get_current_week_range()
+    week_start_str = monday.isoformat()
+    week_end_str = saturday.isoformat()
+
+    # Task status breakdown for current week
+    weekly_reports = await db.daily_reports.find({
+        "report_date": {"$gte": week_start_str, "$lte": week_end_str}
+    }).to_list(1000)
+
+    task_breakdown = [
+        {"status": "Completed", "count": sum(1 for r in weekly_reports if r.get("task_status") == "Completed"), "fill": "#10b981"},
+        {"status": "In Progress", "count": sum(1 for r in weekly_reports if r.get("task_status") == "In Progress"), "fill": "#3b82f6"},
+        {"status": "Pending", "count": sum(1 for r in weekly_reports if r.get("task_status") == "Pending"), "fill": "#f59e0b"},
+        {"status": "Delayed", "count": sum(1 for r in weekly_reports if r.get("task_status") == "Delayed"), "fill": "#ef4444"},
+    ]
+
+    # Weekly score trend — last 6 weeks
+    score_trend = []
+    current_monday = monday
+    for _ in range(6):
+        w_start = current_monday
+        w_end = current_monday + timedelta(days=5)
+        summaries = await db.weekly_summaries.find({
+            "week_start": w_start.isoformat(),
+            "week_end": w_end.isoformat()
+        }).to_list(200)
+        avg_score = round(sum(s.get("performance_score", 0) for s in summaries) / len(summaries), 1) if summaries else 0
+        score_trend.append({
+            "week": w_start.strftime("%-d %b"),
+            "avg_score": avg_score,
+            "count": len(summaries)
+        })
+        current_monday = current_monday - timedelta(days=7)
+    score_trend.reverse()
+
+    return {
+        "task_breakdown": task_breakdown,
+        "score_trend": score_trend,
+        "week_start": week_start_str,
+        "week_end": week_end_str,
+    }
+
 @api_router.get("/dashboard/missing-today")
 async def get_missing_today(current_user: dict = Depends(require_admin)):
     today_str = get_myt_today()

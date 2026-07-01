@@ -11,6 +11,7 @@ import EmployeeManagement from '@/pages/EmployeeManagement';
 import ReportsManagement from '@/pages/ReportsManagement';
 import BossDashboard from '@/pages/BossDashboard';
 import EmployeeProfile from '@/pages/EmployeeProfile';
+import MyProfile from '@/pages/MyProfile';
 import '@/App.css';
 
 const Spinner = () => (
@@ -70,6 +71,9 @@ function App() {
 
           {/* Shared: Employee Profile (admin + boss) */}
           <Route path="/employee/:id" element={<ProtectedRoute roles={['admin', 'boss']}><EmployeeProfile /></ProtectedRoute>} />
+
+          {/* My Profile (all active roles) */}
+          <Route path="/my-profile" element={<ProtectedRoute roles={['employee', 'admin', 'boss']}><MyProfile /></ProtectedRoute>} />
 
           <Route path="/" element={<RoleRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />

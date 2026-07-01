@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, BarChart2
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -15,10 +15,12 @@ const Sidebar = () => {
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/admin/employees', icon: Users, label: 'Employees' },
     { to: '/admin/reports', icon: FileText, label: 'Reports' },
+    { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 
   const bossLinks = [
     { to: '/boss', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 
   const links = user?.role === 'boss' ? bossLinks : adminLinks;

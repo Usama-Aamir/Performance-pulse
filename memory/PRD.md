@@ -57,6 +57,7 @@
 - [x] One report per employee per day (Malaysia timezone, Mon-Sat only)
 - [x] Download Excel template (/api/reports/template)
 - [x] Manual form fallback (collapsible in employee dashboard)
+- [x] XLS badge shown in: Employee Dashboard, My Reports page, Employee Profile Report History
 - [x] Fields: morning_plan, afternoon_plan, final_report, task_category, task_status, calls_made, follow_ups, interested_leads, blockers, final_remarks
 
 ### My Profile (All Roles)

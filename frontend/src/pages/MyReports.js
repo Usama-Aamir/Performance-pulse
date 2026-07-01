@@ -78,6 +78,9 @@ export default function MyReports() {
                   <div className="flex items-center gap-3">
                     <StatusBadge status={r.task_status} />
                     <StatusBadge status={r.review_status} />
+                    {r.upload_source === 'excel' && (
+                      <span className="text-xs bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full">XLS</span>
+                    )}
                     {expanded === r.id ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                   </div>
                 </div>

@@ -207,6 +207,9 @@ export default function EmployeeProfile() {
                   <div className="flex items-center gap-2">
                     <StatusBadge status={r.task_status} />
                     <StatusBadge status={r.review_status} />
+                    {r.upload_source === 'excel' && (
+                      <span className="text-xs bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full">XLS</span>
+                    )}
                     {r.submitted_after_6pm && (
                       <span className="text-xs text-amber-600 border border-amber-200 bg-amber-50 px-1.5 py-0.5 rounded">Late</span>
                     )}

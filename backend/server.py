@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -12,7 +12,13 @@ import os
 import bcrypt
 import jwt
 import logging
+import uuid
+import io
+import requests as http_requests
 from pathlib import Path
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.worksheet.datavalidation import DataValidation
 
 # ─────────────────────────────────────────────
 # Constants / Config
@@ -23,6 +29,214 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM = "HS256"
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+
+# ─────────────────────────────────────────────
+# OBJECT STORAGE
+# ─────────────────────────────────────────────
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_STORAGE_PREFIX = "performance-pulse"
+_storage_key = None
+
+def init_storage():
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    resp = http_requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = http_requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = http_requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+# ─────────────────────────────────────────────
+# EXCEL HELPERS
+# ─────────────────────────────────────────────
+REPORT_COL_HEADERS = [
+    "Date", "Employee Name", "Department", "Job Title",
+    "Morning Planned Tasks 9 AM – 12/1 PM", "Afternoon Planned Tasks 1/2 PM – 6 PM",
+    "Final Completed Work Submit by 6 PM", "Task Category", "Task Status",
+    "Calls Made", "Follow-ups", "Interested Leads", "Blockers / Issues",
+    "Final Remarks", "Morning Plan Matched?", "Afternoon Plan Matched?",
+    "Overall Tally Status", "Submitted By 6 PM?", "Review Status", "Manager Notes"
+]
+
+def generate_excel_template(employee_name: str = "", department: str = "") -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Daily Report"
+
+    ws.merge_cells("A1:T1")
+    ws["A1"] = "Employee Daily Reporting Template — Morning Plan, Afternoon Plan & 6 PM Final Report"
+    ws["A1"].font = Font(bold=True, size=13, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["A1"].fill = PatternFill("solid", fgColor="1E3A5F")
+    ws.row_dimensions[1].height = 30
+
+    ws.merge_cells("A2:T2")
+    ws["A2"] = "Rule: Employees plan tasks before/after lunch and submit the final daily report by 6 PM. Final report must tally with the planned tasks."
+    ws["A2"].font = Font(italic=True, size=10, color="444444")
+    ws["A2"].fill = PatternFill("solid", fgColor="EFF6FF")
+
+    header_fill = PatternFill("solid", fgColor="2563EB")
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+    for idx, header in enumerate(REPORT_COL_HEADERS, start=1):
+        cell = ws.cell(row=4, column=idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    ws.row_dimensions[4].height = 45
+
+    today_str = get_myt_today()
+    ws["A5"] = date.fromisoformat(today_str)
+    ws["A5"].number_format = "YYYY-MM-DD"
+    ws["B5"] = employee_name
+    ws["C5"] = department
+
+    col_widths = [14, 20, 15, 15, 35, 35, 35, 20, 15, 10, 10, 12, 25, 25, 18, 18, 18, 16, 15, 25]
+    for i, w in enumerate(col_widths, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    cat_vals = '"Admin Work,Letter Preparation,Client Calling,Digital Marketing,App Testing,Follow-up,Other"'
+    dv_cat = DataValidation(type="list", formula1=cat_vals, allow_blank=True)
+    dv_cat.sqref = "H5:H100"
+    ws.add_data_validation(dv_cat)
+
+    status_vals = '"Completed,In Progress,Pending,Delayed"'
+    dv_status = DataValidation(type="list", formula1=status_vals, allow_blank=True)
+    dv_status.sqref = "I5:I100"
+    ws.add_data_validation(dv_status)
+
+    # Add Weekly Summary sheet (placeholder)
+    ws2 = wb.create_sheet("Weekly Summary")
+    ws2["A1"] = "Weekly Summary — auto-generated by system"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+def parse_daily_report_excel(file_bytes: bytes) -> list:
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    if "Daily Report" not in wb.sheetnames:
+        raise ValueError("Excel file must contain a 'Daily Report' sheet")
+    ws = wb["Daily Report"]
+    rows_data = []
+
+    for row in ws.iter_rows(min_row=5, values_only=True):
+        row = list(row) + [None] * (20 - len(row))
+        a, b, c, d, e, f, g, h, i, j, k, leads_val, m, n, o, p, q, r, s, t = row[:20]
+
+        if all(v is None or str(v).strip() == "" for v in [a, b, e, f, g]):
+            break
+        if a is None:
+            continue
+
+        if hasattr(a, "strftime"):
+            report_date = a.strftime("%Y-%m-%d")
+        else:
+            try:
+                report_date = datetime.strptime(str(a).strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+            except Exception:
+                report_date = str(a).strip()
+
+        def safe_int(v):
+            try:
+                return max(0, int(float(str(v)))) if v is not None and str(v).strip() else 0
+            except Exception:
+                return 0
+
+        rows_data.append({
+            "report_date": report_date,
+            "employee_name": str(b or "").strip(),
+            "department": str(c or "").strip(),
+            "job_title": str(d or "").strip(),
+            "morning_plan": str(e or "").strip(),
+            "afternoon_plan": str(f or "").strip(),
+            "final_report": str(g or "").strip(),
+            "task_category": str(h or "Other").strip() or "Other",
+            "task_status": str(i or "Completed").strip() or "Completed",
+            "calls_made": safe_int(j),
+            "follow_ups": safe_int(k),
+            "interested_leads": safe_int(leads_val),
+            "blockers": str(m or "").strip(),
+            "final_remarks": str(n or "").strip(),
+            "morning_plan_matched": str(o or "").strip(),
+            "afternoon_plan_matched": str(p or "").strip(),
+            "overall_tally_status": str(q or "").strip(),
+            "submitted_by_6pm_excel": str(r or "").strip(),
+            "review_status_from_excel": str(s or "").strip(),
+            "manager_notes": str(t or "").strip(),
+        })
+    return rows_data
+
+# ─────────────────────────────────────────────
+# PERFORMANCE SCORE
+# ─────────────────────────────────────────────
+
+def calculate_performance_score(submitted: int, working_days: int, completed: int,
+                                  delayed: int, missing: int, total_calls: int) -> dict:
+    sub_rate = submitted / max(1, working_days)
+    submission_score = round(min(30, sub_rate * 30))
+
+    comp_rate = completed / max(1, submitted)
+    completion_score = round(min(25, comp_rate * 25))
+
+    avg_calls = total_calls / max(1, submitted)
+    call_score = min(20, round((avg_calls / 5) * 20))
+
+    delay_score = max(0, 15 - delayed * 3)
+    missing_score = max(0, 10 - missing * 2)
+
+    total = submission_score + completion_score + call_score + delay_score + missing_score
+
+    if total >= 80:
+        level = "Strong"
+    elif total >= 60:
+        level = "Good"
+    elif total >= 40:
+        level = "Average"
+    else:
+        level = "Needs Improvement"
+
+    red_flags = []
+    if missing > 2:
+        red_flags.append(f"{missing} missing report days")
+    if delayed > 3:
+        red_flags.append(f"{delayed} delayed tasks")
+    if sub_rate < 0.7 and working_days > 0:
+        red_flags.append(f"Submission rate only {round(sub_rate * 100)}%")
+    if avg_calls < 2 and submitted > 0:
+        red_flags.append(f"Low call activity (avg {avg_calls:.1f}/day)")
+
+    return {
+        "performance_score": total,
+        "performance_level": level,
+        "red_flags": red_flags,
+        "score_breakdown": {
+            "submission": submission_score,
+            "completion": completion_score,
+            "calls": call_score,
+            "delays": delay_score,
+            "missing": missing_score,
+        }
+    }
 
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
@@ -366,7 +580,7 @@ async def update_user_profile(user_id: str, request: Request, current_user: dict
     if current_user["id"] != user_id and current_user["role"] not in ["admin", "boss"]:
         raise HTTPException(status_code=403, detail="Access denied")
     body = await request.json()
-    allowed = ["full_name", "department", "job_title"]
+    allowed = ["full_name", "department", "job_title", "phone", "profile_remarks"]
     update_data = {k: v for k, v in body.items() if k in allowed}
     if not update_data:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -379,6 +593,149 @@ async def update_user_profile(user_id: str, request: Request, current_user: dict
 # ─────────────────────────────────────────────
 # REPORT ROUTES
 # ─────────────────────────────────────────────
+
+@api_router.get("/reports/template")
+async def download_template(current_user: dict = Depends(require_active)):
+    xlsx = generate_excel_template(current_user.get("full_name", ""), current_user.get("department", ""))
+    return Response(
+        content=xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=daily_report_{get_myt_today()}.xlsx"}
+    )
+
+@api_router.post("/reports/upload-preview")
+async def upload_report_preview(file: UploadFile = File(...), current_user: dict = Depends(require_active)):
+    if current_user["role"] != "employee":
+        raise HTTPException(status_code=403, detail="Only employees can upload reports")
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only .xlsx files are accepted")
+
+    content = await file.read()
+    try:
+        rows = parse_daily_report_excel(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No data found. Ensure row 5 onwards contains report data.")
+
+    today_str = get_myt_today()
+    today_date = date.fromisoformat(today_str)
+
+    if not is_working_day(today_date):
+        raise HTTPException(status_code=400, detail="Reports can only be submitted on working days (Monday to Saturday).")
+
+    for row in rows:
+        if row["report_date"] != today_str:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Report date '{row['report_date']}' does not match today ({today_str} MYT). Upload rejected."
+            )
+
+    existing = await db.daily_reports.find_one({"employee_id": current_user["id"], "report_date": today_str})
+    if existing:
+        raise HTTPException(status_code=409, detail="You have already submitted a report for today.")
+
+    return {"preview": rows, "today": today_str, "filename": file.filename, "row_count": len(rows)}
+
+@api_router.post("/reports/upload-confirm")
+async def upload_report_confirm(file: UploadFile = File(...), current_user: dict = Depends(require_active)):
+    if current_user["role"] != "employee":
+        raise HTTPException(status_code=403, detail="Only employees can upload reports")
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only .xlsx files are accepted")
+
+    content = await file.read()
+    try:
+        rows = parse_daily_report_excel(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No data found in the Excel file.")
+
+    today_str = get_myt_today()
+    today_date = date.fromisoformat(today_str)
+
+    if not is_working_day(today_date):
+        raise HTTPException(status_code=400, detail="Reports can only be submitted on working days.")
+
+    for row in rows:
+        if row["report_date"] != today_str:
+            raise HTTPException(status_code=400, detail=f"Report date mismatch. Expected {today_str}.")
+
+    existing = await db.daily_reports.find_one({"employee_id": current_user["id"], "report_date": today_str})
+    if existing:
+        raise HTTPException(status_code=409, detail="You have already submitted a report for today.")
+
+    # Upload file to object storage
+    file_path = f"{APP_STORAGE_PREFIX}/reports/{current_user['id']}/{today_str}_{uuid.uuid4().hex[:8]}.xlsx"
+    stored_path = None
+    try:
+        result = put_object(file_path, content,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        stored_path = result.get("path", file_path)
+    except Exception as exc:
+        logger.warning(f"Storage upload failed (proceeding without file): {exc}")
+
+    # Aggregate multiple rows into one report
+    primary = rows[0]
+    if len(rows) > 1:
+        morning_plan = "\n".join(r["morning_plan"] for r in rows if r["morning_plan"])
+        afternoon_plan = "\n".join(r["afternoon_plan"] for r in rows if r["afternoon_plan"])
+        final_report = "\n".join(r["final_report"] for r in rows if r["final_report"])
+        statuses = [r["task_status"] for r in rows]
+        for worst in ["Delayed", "Pending", "In Progress", "Completed"]:
+            if worst in statuses:
+                combined_status = worst
+                break
+        else:
+            combined_status = "Completed"
+    else:
+        morning_plan = primary["morning_plan"]
+        afternoon_plan = primary["afternoon_plan"]
+        final_report = primary["final_report"]
+        combined_status = primary["task_status"]
+
+    report_doc = {
+        "employee_id": current_user["id"],
+        "employee_name": current_user.get("full_name", ""),
+        "report_date": today_str,
+        "morning_plan": morning_plan,
+        "afternoon_plan": afternoon_plan,
+        "final_report": final_report,
+        "task_category": primary["task_category"],
+        "task_status": combined_status,
+        "calls_made": sum(r.get("calls_made", 0) for r in rows),
+        "follow_ups": sum(r.get("follow_ups", 0) for r in rows),
+        "interested_leads": sum(r.get("interested_leads", 0) for r in rows),
+        "blockers": primary.get("blockers", ""),
+        "final_remarks": primary.get("final_remarks", ""),
+        "morning_plan_matched": primary.get("morning_plan_matched", ""),
+        "afternoon_plan_matched": primary.get("afternoon_plan_matched", ""),
+        "overall_tally_status": primary.get("overall_tally_status", ""),
+        "review_status": "submitted",
+        "upload_source": "excel",
+        "original_filename": file.filename,
+        "file_path": stored_path,
+        "submitted_after_6pm": get_myt_now().hour >= 18,
+        "raw_rows": rows,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    ins = await db.daily_reports.insert_one(report_doc)
+    report_doc["id"] = str(ins.inserted_id)
+    report_doc.pop("_id", None)
+    return report_doc
+
+@api_router.get("/files/{file_path:path}")
+async def serve_file(file_path: str, current_user: dict = Depends(require_active)):
+    try:
+        data, content_type = get_object(file_path)
+        return Response(content=data, media_type=content_type,
+                        headers={"Content-Disposition": "attachment; filename=report.xlsx"})
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
 
 @api_router.get("/reports/my")
 async def get_my_reports(current_user: dict = Depends(require_active)):
@@ -618,6 +975,7 @@ async def _generate_weekly_summary(employee_id: str, week_start_str: str, week_e
         "week_start": week_start_str,
         "week_end": week_end_str,
         "total_reports_submitted": total_submitted,
+        "working_days_in_period": len(past_working_days),
         "missing_days": missing_days,
         "completed_count": completed,
         "in_progress_count": in_progress,
@@ -627,7 +985,9 @@ async def _generate_weekly_summary(employee_id: str, week_start_str: str, week_e
         "total_follow_ups": total_follow_ups,
         "total_interested_leads": total_leads,
         "compiled_summary": compiled,
-        "generated_at": datetime.now(timezone.utc).isoformat()
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        **calculate_performance_score(total_submitted, len(past_working_days), completed,
+                                       delayed, missing_days, total_calls)
     }
 
     existing = await db.weekly_summaries.find_one({

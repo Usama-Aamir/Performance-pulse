@@ -109,7 +109,7 @@ Completed, In Progress, Pending, Delayed
 - Nothing blocking core functionality
 
 ### P1 (Next Phase)
-- Brute force protection (lockout after 5 failed login attempts)
+- ~~Brute force protection~~ ✅ **Done** — 5 attempts → 15-min lockout per email
 - Cookie secure=True when behind HTTPS (currently secure=False)
 
 ### P2 (Future)

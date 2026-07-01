@@ -21,6 +21,8 @@ ROOT_DIR = Path(__file__).parent
 MYT = ZoneInfo("Asia/Kuala_Lumpur")
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM = "HS256"
+LOCKOUT_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
 
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
@@ -161,11 +163,39 @@ async def require_admin(current_user: dict = Depends(require_active)):
 async def startup():
     await db.profiles.create_index("email", unique=True)
     await db.daily_reports.create_index([("employee_id", 1), ("report_date", 1)], unique=True)
+    await db.login_attempts.create_index("email")
+    await db.login_attempts.create_index("attempted_at")
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+# ─────────────────────────────────────────────
+# BRUTE FORCE HELPERS
+# ─────────────────────────────────────────────
+
+async def check_brute_force(email: str):
+    """Raise 429 if this email has 5+ failed attempts in the last 15 minutes."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+    count = await db.login_attempts.count_documents({
+        "email": email,
+        "attempted_at": {"$gt": cutoff}
+    })
+    if count >= LOCKOUT_ATTEMPTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Please try again after 15 minutes."
+        )
+
+async def record_failed_attempt(email: str):
+    await db.login_attempts.insert_one({
+        "email": email,
+        "attempted_at": datetime.now(timezone.utc).isoformat()
+    })
+
+async def clear_failed_attempts(email: str):
+    await db.login_attempts.delete_many({"email": email})
 
 # ─────────────────────────────────────────────
 # AUTH ROUTES
@@ -218,9 +248,16 @@ async def login(request: Request, response: Response):
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required")
 
+    # Brute force check — before any DB user lookup
+    await check_brute_force(email)
+
     user = await db.profiles.find_one({"email": email})
     if not user or not verify_password(password, user.get("password_hash", "")):
+        await record_failed_attempt(email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Successful login — clear any previous failed attempts
+    await clear_failed_attempts(email)
 
     user_dict = doc_to_dict(user)
     user_dict.pop("password_hash", None)

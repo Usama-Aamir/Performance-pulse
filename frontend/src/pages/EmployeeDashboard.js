@@ -117,7 +117,7 @@ export default function EmployeeDashboard() {
         {/* Greeting */}
         <div>
           <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
-            {getGreeting()}, {user?.full_name?.split(' ')[0]}
+            {getGreeting()}, {user?.full_name}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
             Today: <span className="font-medium text-slate-700">{formatDate(today)}</span>

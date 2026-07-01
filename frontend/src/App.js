@@ -1,55 +1,81 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import LoginPage from '@/pages/LoginPage';
+import WaitingApproval from '@/pages/WaitingApproval';
+import AccessDenied from '@/pages/AccessDenied';
+import EmployeeDashboard from '@/pages/EmployeeDashboard';
+import MyReports from '@/pages/MyReports';
+import AdminDashboard from '@/pages/AdminDashboard';
+import EmployeeManagement from '@/pages/EmployeeManagement';
+import ReportsManagement from '@/pages/ReportsManagement';
+import BossDashboard from '@/pages/BossDashboard';
+import EmployeeProfile from '@/pages/EmployeeProfile';
+import '@/App.css';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const Spinner = () => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+    <div className="w-8 h-8 border-2 border-blue-800 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+const RoleRedirect = () => {
+  const { user } = useAuth();
+  if (user === undefined) return <Spinner />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.status === 'pending') return <Navigate to="/waiting-approval" replace />;
+  if (user.status === 'rejected' || user.status === 'inactive') return <Navigate to="/access-denied" replace />;
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
+  if (user.role === 'boss') return <Navigate to="/boss" replace />;
+  return <Navigate to="/dashboard" replace />;
+};
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+const ProtectedRoute = ({ children, roles }) => {
+  const { user } = useAuth();
+  if (user === undefined) return <Spinner />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.status === 'pending') return <Navigate to="/waiting-approval" replace />;
+  if (user.status === 'rejected' || user.status === 'inactive') return <Navigate to="/access-denied" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+};
 
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
+const PublicRoute = ({ children }) => {
+  const { user } = useAuth();
+  if (user === undefined) return <Spinner />;
+  if (user) return <RoleRedirect />;
+  return children;
 };
 
 function App() {
   return (
-    <div className="App">
+    <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
+          <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+          <Route path="/waiting-approval" element={<WaitingApproval />} />
+          <Route path="/access-denied" element={<AccessDenied />} />
+
+          {/* Employee */}
+          <Route path="/dashboard" element={<ProtectedRoute roles={['employee']}><EmployeeDashboard /></ProtectedRoute>} />
+          <Route path="/my-reports" element={<ProtectedRoute roles={['employee']}><MyReports /></ProtectedRoute>} />
+
+          {/* Admin */}
+          <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/employees" element={<ProtectedRoute roles={['admin']}><EmployeeManagement /></ProtectedRoute>} />
+          <Route path="/admin/reports" element={<ProtectedRoute roles={['admin']}><ReportsManagement /></ProtectedRoute>} />
+
+          {/* Boss */}
+          <Route path="/boss" element={<ProtectedRoute roles={['boss']}><BossDashboard /></ProtectedRoute>} />
+
+          {/* Shared: Employee Profile (admin + boss) */}
+          <Route path="/employee/:id" element={<ProtectedRoute roles={['admin', 'boss']}><EmployeeProfile /></ProtectedRoute>} />
+
+          <Route path="/" element={<RoleRedirect />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
-    </div>
+    </AuthProvider>
   );
 }
 

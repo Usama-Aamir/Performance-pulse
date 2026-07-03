@@ -415,6 +415,50 @@ async def clear_failed_attempts(email: str):
 # AUTH ROUTES
 # ─────────────────────────────────────────────
 
+@api_router.post("/auth/bootstrap-boss")
+async def bootstrap_boss(request: Request, response: Response):
+    """
+    One-time endpoint to promote an existing account to boss.
+    Requires BOOTSTRAP_SECRET env var to be set.
+    Blocked if a boss account already exists (safe to leave enabled).
+    """
+    bootstrap_secret = os.environ.get("BOOTSTRAP_SECRET", "")
+    if not bootstrap_secret:
+        raise HTTPException(status_code=403, detail="Bootstrap is not enabled on this server")
+
+    body = await request.json()
+    secret = body.get("secret", "")
+    email = body.get("email", "").strip().lower()
+    full_name = body.get("full_name", "Mr. Seelaan").strip()
+
+    if secret != bootstrap_secret:
+        raise HTTPException(status_code=403, detail="Invalid bootstrap secret")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # Block if boss already exists
+    existing_boss = await db.profiles.find_one({"role": "boss"})
+    if existing_boss:
+        raise HTTPException(status_code=409, detail="A boss account already exists. Bootstrap is only allowed once.")
+
+    user = await db.profiles.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found. Register via the app first, then call this endpoint.")
+
+    await db.profiles.update_one(
+        {"email": email},
+        {"$set": {"role": "boss", "status": "active", "full_name": full_name}}
+    )
+    updated = await db.profiles.find_one({"email": email}, {"password_hash": 0})
+    return {
+        "message": "Boss account created successfully",
+        "id": str(updated["_id"]),
+        "full_name": updated["full_name"],
+        "email": updated["email"],
+        "role": updated["role"],
+        "status": updated["status"]
+    }
+
 @api_router.post("/auth/register")
 async def register(request: Request, response: Response):
     body = await request.json()

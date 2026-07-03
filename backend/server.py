@@ -29,6 +29,9 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM = "HS256"
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+# Cookie settings — set COOKIE_SECURE=true on Render (HTTPS) for cross-origin cookie support
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = "none" if COOKIE_SECURE else "lax"
 
 # ─────────────────────────────────────────────
 # OBJECT STORAGE
@@ -305,8 +308,8 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
-    response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax", max_age=28800, path="/")
-    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    response.set_cookie("access_token", access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=28800, path="/")
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
 
 # Malaysia timezone helpers
 def get_myt_today() -> str:
@@ -552,7 +555,7 @@ async def refresh_token(request: Request, response: Response):
         user_id = str(user["_id"])
         email = user.get("email", "")
         new_token = create_access_token(user_id, email)
-        response.set_cookie("access_token", new_token, httponly=True, secure=False, samesite="lax", max_age=28800, path="/")
+        response.set_cookie("access_token", new_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=28800, path="/")
         return {"message": "Token refreshed"}
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid refresh token")

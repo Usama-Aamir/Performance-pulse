@@ -55,12 +55,14 @@ const StatusBadge = ({ status, clockOutReason }) => {
 export default function AttendancePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [secondsAgo, setSecondsAgo] = useState(0);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
     try {
       const res = await API.get('/attendance/all-today');
       setData(res.data);
+      setLastUpdated(new Date());
     } catch (e) {
       console.error(e);
     } finally {
@@ -68,7 +70,21 @@ export default function AttendancePage() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!lastUpdated) return;
+    const tick = () => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [lastUpdated]);
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -78,14 +94,21 @@ export default function AttendancePage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
-              Attendance
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
+                Attendance
+              </h1>
+              <span className="flex items-center gap-1 text-xs font-medium text-emerald-600" data-testid="attendance-live-indicator">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                Live
+              </span>
+            </div>
             <p className="text-sm text-slate-500 mt-0.5">
               {data ? formatDate(data.date) : ''}
               {data && !data.is_working_day && (
                 <span className="ml-2 text-amber-600">(Non-working day)</span>
               )}
+              <span className="ml-2 text-slate-400">· Refreshing every 30s · Updated {secondsAgo}s ago</span>
             </p>
           </div>
           <button

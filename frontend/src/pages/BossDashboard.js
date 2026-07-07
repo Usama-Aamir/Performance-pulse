@@ -56,6 +56,7 @@ export default function BossDashboard() {
   const [missingData, setMissingData] = useState(null);
   const [chartData, setChartData] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [attendanceData, setAttendanceData] = useState(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [autoGenLoading, setAutoGenLoading] = useState(false);
@@ -66,16 +67,18 @@ export default function BossDashboard() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [statsRes, missingRes, empRes, chartRes] = await Promise.all([
+      const [statsRes, missingRes, empRes, chartRes, attRes] = await Promise.all([
         API.get('/dashboard/stats'),
         API.get('/dashboard/missing-today'),
         API.get('/users?role=employee&status=active'),
         API.get('/dashboard/boss-charts'),
+        API.get('/dashboard/attendance-summary'),
       ]);
       setStats(statsRes.data);
       setMissingData(missingRes.data);
       setEmployees(empRes.data || []);
       setChartData(chartRes.data);
+      setAttendanceData(attRes.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -105,6 +108,21 @@ export default function BossDashboard() {
     e.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     e.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Fetch per-employee attendance for badges
+  const [empAttendance, setEmpAttendance] = useState(null);
+  useEffect(() => {
+    API.get('/attendance/all-today').then(res => setEmpAttendance(res.data)).catch(() => {});
+  }, []);
+
+  const empAttMap = React.useMemo(() => {
+    if (!empAttendance) return {};
+    const map = {};
+    (empAttendance.attendance || []).forEach(a => {
+      map[a.employee_id] = a;
+    });
+    return map;
+  }, [empAttendance]);
 
   // Build activity chart data from stats
   const activityData = stats ? [
@@ -155,6 +173,7 @@ export default function BossDashboard() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="boss-stats">
               <StatCard icon={Users} label="Total Employees" value={stats?.total_employees} color="blue" />
               <StatCard icon={UserCheck} label="Active Employees" value={stats?.active_employees} color="emerald" />
+              <StatCard icon={Clock} label="Currently Working" value={attendanceData?.still_working ?? 0} color="blue" />
               <StatCard icon={FileText} label="Reports Today" value={stats?.reports_today} color="purple" />
               <StatCard icon={AlertTriangle} label="Missing Today" value={stats?.missing_today}
                 color="red" highlight={stats?.missing_today > 0} />
@@ -388,6 +407,21 @@ export default function BossDashboard() {
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={emp.status} />
+                        {empAttMap[emp.id] ? (
+                          empAttMap[emp.id].status === 'working' ? (
+                            <span className="flex items-center gap-1 text-xs font-medium text-blue-600" data-testid={`emp-att-${emp.id}`}>
+                              <span className="w-2 h-2 bg-blue-500 rounded-full" /> Working
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs font-medium text-emerald-600" data-testid={`emp-att-${emp.id}`}>
+                              <span className="w-2 h-2 bg-emerald-500 rounded-full" /> Completed
+                            </span>
+                          )
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs font-medium text-slate-400" data-testid={`emp-att-${emp.id}`}>
+                            <span className="w-2 h-2 bg-slate-300 rounded-full" /> Not Clocked In
+                          </span>
+                        )}
                         <ExternalLink className="w-4 h-4 text-slate-400" />
                       </div>
                     </div>

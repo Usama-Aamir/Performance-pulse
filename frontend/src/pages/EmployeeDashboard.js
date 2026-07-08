@@ -64,6 +64,7 @@ export default function EmployeeDashboard() {
   const [attWorkingDay, setAttWorkingDay] = useState(true);
   const [attLoading, setAttLoading] = useState(false);
   const [liveDuration, setLiveDuration] = useState('');
+  const [myHistory, setMyHistory] = useState(null);
 
   // upload flow
   const [selectedFile, setSelectedFile] = useState(null);
@@ -102,16 +103,18 @@ export default function EmployeeDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [todayRes, recentRes, attRes] = await Promise.all([
+      const [todayRes, recentRes, attRes, histRes] = await Promise.all([
         API.get('/reports/today'),
         API.get('/reports/my'),
         API.get('/attendance/today'),
+        API.get('/attendance/my-history'),
       ]);
       setTodayReport(todayRes.data?.report || null);
       setIsWorkingDay(todayRes.data?.is_working_day !== false);
       setRecentReports((recentRes.data || []).slice(0, 5));
       setAttendance(attRes.data?.attendance || null);
       setAttWorkingDay(attRes.data?.is_working_day !== false);
+      setMyHistory(histRes.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -503,6 +506,76 @@ export default function EmployeeDashboard() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* My Attendance History */}
+        {myHistory && (
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm" data-testid="my-attendance-history">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-800" />
+                <h3 className="font-semibold text-slate-900 text-sm">My Attendance History</h3>
+              </div>
+              <span className="text-xs text-slate-400">This Month</span>
+            </div>
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-slate-100">
+              <div className="text-center">
+                <p className="text-xl font-bold text-emerald-600">{myHistory.summary.present_days}</p>
+                <p className="text-xs text-slate-500">Days Present</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-bold text-red-600">{myHistory.summary.absent_days}</p>
+                <p className="text-xs text-slate-500">Days Absent</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-bold text-blue-600">{myHistory.summary.avg_working_hours}h</p>
+                <p className="text-xs text-slate-500">Avg Hours</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-bold text-amber-600">{myHistory.summary.late_count}</p>
+                <p className="text-xs text-slate-500">Late Count</p>
+              </div>
+            </div>
+            {myHistory.records.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Date</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Clock In</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Clock Out</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Hours</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Status</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-500">Late?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myHistory.records.slice(0, 10).map((r, i) => (
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-600">{formatDate(r.date)}</td>
+                        <td className="px-4 py-2 text-slate-600">{r.clock_in || '—'}</td>
+                        <td className="px-4 py-2 text-slate-600">{r.clock_out || '—'}</td>
+                        <td className="px-4 py-2 text-slate-600">{r.working_duration_display || '—'}</td>
+                        <td className="px-4 py-2">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            r.status === 'working' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                            r.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                            r.clock_out_reason === 'auto' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            'bg-slate-100 text-slate-600 border border-slate-200'
+                          }`}>
+                            {r.status === 'completed' && r.clock_out_reason === 'auto' ? 'Auto Out' : r.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">{r.is_late === true ? '🟡' : r.is_late === false ? '—' : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-slate-500 text-sm">No attendance records this month yet</div>
+            )}
           </div>
         )}
       </main>

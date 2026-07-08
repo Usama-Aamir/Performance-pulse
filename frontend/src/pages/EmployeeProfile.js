@@ -3,7 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth, API } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import StatusBadge from '@/components/StatusBadge';
-import { ArrowLeft, User, Briefcase, Calendar, FileText, BarChart2, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, User, Briefcase, Calendar, FileText, BarChart2, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Clock } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from 'recharts';
 import { format } from 'date-fns';
 
 const formatDate = (d) => { try { return format(new Date(d + 'T00:00:00'), 'dd MMM yyyy'); } catch { return d; } };
@@ -21,6 +24,7 @@ export default function EmployeeProfile() {
   const [expandedReport, setExpandedReport] = useState(null);
   const [expandedSummary, setExpandedSummary] = useState(null);
   const [activeTab, setActiveTab] = useState('reports');
+  const [attSummary, setAttSummary] = useState(null);
   const [weekInput, setWeekInput] = useState('');
 
   useEffect(() => {
@@ -30,14 +34,16 @@ export default function EmployeeProfile() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [empRes, repsRes, sumRes] = await Promise.all([
+      const [empRes, repsRes, sumRes, attRes] = await Promise.all([
         API.get(`/users/${id}`),
         API.get(`/reports/employee/${id}`),
-        API.get(`/weekly-summaries/employee/${id}`)
+        API.get(`/weekly-summaries/employee/${id}`),
+        API.get(`/attendance/employee-summary/${id}`)
       ]);
       setEmployee(empRes.data);
       setReports(repsRes.data || []);
       setSummaries(sumRes.data || []);
+      setAttSummary(attRes.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -169,7 +175,7 @@ export default function EmployeeProfile() {
         {/* Tabs */}
         <div className="border-b border-slate-200">
           <div className="flex gap-0">
-            {['reports', 'weekly'].map(tab => (
+            {['reports', 'weekly', 'attendance'].map(tab => (
               <button
                 key={tab}
                 data-testid={`tab-${tab}`}
@@ -180,7 +186,7 @@ export default function EmployeeProfile() {
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {tab === 'reports' ? `Report History (${reports.length})` : `Weekly Summaries (${summaries.length})`}
+                {tab === 'reports' ? `Report History (${reports.length})` : tab === 'weekly' ? `Weekly Summaries (${summaries.length})` : 'Attendance'}
               </button>
             ))}
           </div>
@@ -349,6 +355,123 @@ export default function EmployeeProfile() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Attendance Tab */}
+        {activeTab === 'attendance' && (
+          <div className="space-y-4" data-testid="attendance-summary-tab">
+            {!attSummary ? (
+              <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500 text-sm">
+                <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                No attendance data available for this employee.
+              </div>
+            ) : (
+              <>
+                {/* Monthly Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* This Month */}
+                  <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                    <h3 className="font-semibold text-slate-900 text-sm mb-3">This Month</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-emerald-600">{attSummary.this_month.present_days}</p>
+                        <p className="text-xs text-slate-500">Present</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-red-600">{attSummary.this_month.absent_days}</p>
+                        <p className="text-xs text-slate-500">Absent</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-amber-600">{attSummary.this_month.late_count}</p>
+                        <p className="text-xs text-slate-500">Late</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-blue-600">{attSummary.this_month.avg_working_hours}h</p>
+                        <p className="text-xs text-slate-500">Avg Hours</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-purple-600">{attSummary.this_month.auto_clock_out_count}</p>
+                        <p className="text-xs text-slate-500">Auto Out</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-slate-700">{attSummary.this_month.present_percentage}%</p>
+                        <p className="text-xs text-slate-500">Present %</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Last Month */}
+                  <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                    <h3 className="font-semibold text-slate-900 text-sm mb-3">Last Month</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-emerald-600">{attSummary.last_month.present_days}</p>
+                        <p className="text-xs text-slate-500">Present</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-red-600">{attSummary.last_month.absent_days}</p>
+                        <p className="text-xs text-slate-500">Absent</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-amber-600">{attSummary.last_month.late_count}</p>
+                        <p className="text-xs text-slate-500">Late</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-blue-600">{attSummary.last_month.avg_working_hours}h</p>
+                        <p className="text-xs text-slate-500">Avg Hours</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-purple-600">{attSummary.last_month.auto_clock_out_count}</p>
+                        <p className="text-xs text-slate-500">Auto Out</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-slate-700">{attSummary.last_month.present_percentage}%</p>
+                        <p className="text-xs text-slate-500">Present %</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Overall Rating */}
+                <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900 text-sm">Overall Rating (This Month)</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Based on attendance rate and punctuality</p>
+                  </div>
+                  <span className={`text-sm font-bold px-4 py-2 rounded-full ${
+                    attSummary.this_month.rating === 'Excellent' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                    attSummary.this_month.rating === 'Good' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                    'bg-amber-50 text-amber-700 border border-amber-200'
+                  }`} data-testid="attendance-rating">
+                    {attSummary.this_month.rating}
+                  </span>
+                </div>
+
+                {/* Daily Hours Chart */}
+                {attSummary.daily_hours.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                    <h3 className="font-semibold text-slate-900 text-sm mb-4">Daily Working Hours (This Month)</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={attSummary.daily_hours}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(d) => d.substring(8)}
+                        />
+                        <YAxis tick={{ fontSize: 11 }} unit="h" />
+                        <Tooltip
+                          formatter={(v) => [`${v}h`, 'Working Hours']}
+                          labelFormatter={(d) => formatDate(d)}
+                        />
+                        <Bar dataKey="hours" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </main>

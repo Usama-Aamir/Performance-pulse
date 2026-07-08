@@ -440,6 +440,7 @@ async def startup():
     await db.login_attempts.create_index("email")
     await db.login_attempts.create_index("attempted_at")
     await db.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)
+    await db.attendance.create_index([("date", 1), ("employee_id", 1)])
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")
@@ -1451,6 +1452,285 @@ async def get_attendance_summary(current_user: dict = Depends(require_admin)):
 # ─────────────────────────────────────────────
 # Misc
 # ─────────────────────────────────────────────
+
+@api_router.get("/attendance/history")
+async def get_attendance_history(
+    start_date: str,
+    end_date: str,
+    employee_id: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    try:
+        query = {"date": {"$gte": start_date, "$lte": end_date}}
+        if employee_id:
+            query["employee_id"] = employee_id
+
+        records = await db.attendance.find(query).sort("date", -1).to_list(2000)
+
+        emp_ids = list({str(r.get("employee_id")) for r in records})
+        emp_map = {}
+        if emp_ids:
+            from bson import ObjectId as _OID
+            oid_list = []
+            for eid in emp_ids:
+                try:
+                    oid_list.append(_OID(eid))
+                except Exception:
+                    pass
+            if oid_list:
+                employees = await db.profiles.find(
+                    {"_id": {"$in": oid_list}}, {"password_hash": 0}
+                ).to_list(1000)
+                for emp in employees:
+                    emp_map[str(emp["_id"])] = emp
+
+        result = []
+        for r in records:
+            emp = emp_map.get(str(r.get("employee_id")), {})
+            is_late = None
+            if r.get("clock_in_at"):
+                try:
+                    cin = datetime.fromisoformat(r["clock_in_at"])
+                    late_threshold = cin.replace(hour=9, minute=15, second=0, microsecond=0)
+                    is_late = cin > late_threshold
+                except (ValueError, TypeError):
+                    is_late = None
+
+            result.append({
+                "employee_id": str(r.get("employee_id", "")),
+                "employee_name": emp.get("full_name", r.get("employee_name", "")),
+                "department": emp.get("department", r.get("department", "")),
+                "date": r.get("date", ""),
+                "clock_in": r.get("clock_in"),
+                "clock_out": r.get("clock_out"),
+                "clock_in_at": r.get("clock_in_at"),
+                "clock_out_at": r.get("clock_out_at"),
+                "working_duration_minutes": r.get("working_duration_minutes"),
+                "working_duration_display": r.get("working_duration_display", ""),
+                "clock_out_reason": r.get("clock_out_reason"),
+                "status": r.get("status", ""),
+                "is_late": is_late
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_attendance_history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/attendance/history/summary")
+async def get_attendance_history_summary(
+    start_date: str,
+    end_date: str,
+    employee_id: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    try:
+        query = {"date": {"$gte": start_date, "$lte": end_date}}
+        if employee_id:
+            query["employee_id"] = employee_id
+
+        records = await db.attendance.find(query).to_list(2000)
+
+        present_days = len(records)
+        auto_clock_out_count = sum(1 for r in records if r.get("clock_out_reason") == "auto")
+        total_minutes = sum(r.get("working_duration_minutes", 0) or 0 for r in records)
+
+        late_count = 0
+        for r in records:
+            if r.get("clock_in_at"):
+                try:
+                    cin = datetime.fromisoformat(r["clock_in_at"])
+                    late_threshold = cin.replace(hour=9, minute=15, second=0, microsecond=0)
+                    if cin > late_threshold:
+                        late_count += 1
+                except (ValueError, TypeError):
+                    pass
+
+        start_d = date.fromisoformat(start_date)
+        end_d = date.fromisoformat(end_date)
+        total_working_days = 0
+        cur = start_d
+        while cur <= end_d:
+            if is_working_day(cur):
+                total_working_days += 1
+            cur += timedelta(days=1)
+
+        if employee_id:
+            absent_days = max(0, total_working_days - present_days)
+        else:
+            active_count = await db.profiles.count_documents({"role": "employee", "status": "active"})
+            absent_days = max(0, total_working_days * active_count - present_days)
+
+        avg_hours = round(total_minutes / 60 / present_days, 1) if present_days > 0 else 0
+
+        return {
+            "total_days": total_working_days,
+            "present_days": present_days,
+            "absent_days": absent_days,
+            "late_count": late_count,
+            "auto_clock_out_count": auto_clock_out_count,
+            "avg_working_hours": avg_hours,
+            "total_working_hours": round(total_minutes / 60, 1)
+        }
+    except Exception as e:
+        logger.error(f"Error in get_attendance_history_summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/attendance/my-history")
+async def get_my_attendance_history(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(require_active)
+):
+    try:
+        today_str = get_myt_today()
+        today_d = date.fromisoformat(today_str)
+        first_of_month = today_d.replace(day=1)
+
+        sd = start_date or first_of_month.isoformat()
+        ed = end_date or today_str
+
+        records = await db.attendance.find({
+            "employee_id": current_user["id"],
+            "date": {"$gte": sd, "$lte": ed}
+        }).sort("date", -1).to_list(200)
+
+        result = []
+        for r in records:
+            is_late = None
+            if r.get("clock_in_at"):
+                try:
+                    cin = datetime.fromisoformat(r["clock_in_at"])
+                    late_threshold = cin.replace(hour=9, minute=15, second=0, microsecond=0)
+                    is_late = cin > late_threshold
+                except (ValueError, TypeError):
+                    is_late = None
+
+            result.append({
+                "date": r.get("date", ""),
+                "clock_in": r.get("clock_in"),
+                "clock_out": r.get("clock_out"),
+                "working_duration_display": r.get("working_duration_display", ""),
+                "status": r.get("status", ""),
+                "clock_out_reason": r.get("clock_out_reason"),
+                "is_late": is_late
+            })
+
+        present_days = len(records)
+        late_count = sum(1 for r in result if r["is_late"])
+        total_minutes = sum(
+            (rec.get("working_duration_minutes") or 0)
+            for rec in records
+        )
+        avg_hours = round(total_minutes / 60 / present_days, 1) if present_days > 0 else 0
+
+        total_working_days = 0
+        cur = date.fromisoformat(sd)
+        end_d = date.fromisoformat(ed)
+        while cur <= end_d:
+            if is_working_day(cur):
+                total_working_days += 1
+            cur += timedelta(days=1)
+        absent_days = max(0, total_working_days - present_days)
+
+        return {
+            "records": result,
+            "summary": {
+                "present_days": present_days,
+                "absent_days": absent_days,
+                "late_count": late_count,
+                "avg_working_hours": avg_hours
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in get_my_attendance_history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/attendance/employee-summary/{employee_id}")
+async def get_employee_attendance_summary(employee_id: str, current_user: dict = Depends(require_admin)):
+    try:
+        today_str = get_myt_today()
+        today_d = date.fromisoformat(today_str)
+
+        this_month_start = today_d.replace(day=1).isoformat()
+        last_month_end = (today_d.replace(day=1) - timedelta(days=1)).isoformat()
+        last_month_start = (today_d.replace(day=1) - timedelta(days=1)).replace(day=1).isoformat()
+
+        async def get_month_summary(sd, ed):
+            records = await db.attendance.find({
+                "employee_id": employee_id,
+                "date": {"$gte": sd, "$lte": ed}
+            }).to_list(200)
+
+            present = len(records)
+            late = 0
+            total_min = 0
+            auto_count = 0
+            for r in records:
+                if r.get("clock_in_at"):
+                    try:
+                        cin = datetime.fromisoformat(r["clock_in_at"])
+                        if cin > cin.replace(hour=9, minute=15, second=0, microsecond=0):
+                            late += 1
+                    except (ValueError, TypeError):
+                        pass
+                total_min += r.get("working_duration_minutes", 0) or 0
+                if r.get("clock_out_reason") == "auto":
+                    auto_count += 1
+
+            start_d = date.fromisoformat(sd)
+            end_d = date.fromisoformat(ed)
+            wd = 0
+            cur = start_d
+            while cur <= end_d:
+                if is_working_day(cur):
+                    wd += 1
+                cur += timedelta(days=1)
+
+            present_pct = (present / wd * 100) if wd > 0 else 0
+            avg_h = round(total_min / 60 / present, 1) if present > 0 else 0
+
+            if present_pct > 95 and late == 0:
+                rating = "Excellent"
+            elif present_pct > 90 and late < 3:
+                rating = "Good"
+            else:
+                rating = "Needs Improvement"
+
+            return {
+                "present_days": present,
+                "absent_days": max(0, wd - present),
+                "late_count": late,
+                "avg_working_hours": avg_h,
+                "auto_clock_out_count": auto_count,
+                "present_percentage": round(present_pct, 1),
+                "rating": rating
+            }
+
+        this_month = await get_month_summary(this_month_start, today_str)
+        last_month = await get_month_summary(last_month_start, last_month_end)
+
+        daily_records = await db.attendance.find({
+            "employee_id": employee_id,
+            "date": {"$gte": this_month_start, "$lte": today_str}
+        }).sort("date", 1).to_list(100)
+
+        daily_hours = []
+        for r in daily_records:
+            mins = r.get("working_duration_minutes", 0) or 0
+            daily_hours.append({
+                "date": r.get("date", ""),
+                "hours": round(mins / 60, 1)
+            })
+
+        return {
+            "this_month": this_month,
+            "last_month": last_month,
+            "daily_hours": daily_hours
+        }
+    except Exception as e:
+        logger.error(f"Error in get_employee_attendance_summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/")
 async def root():

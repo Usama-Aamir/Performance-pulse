@@ -352,38 +352,45 @@ async def process_auto_clock_outs() -> int:
     """Lazy auto-clock-out: if current MYT time >= 18:00, find all 'working'
     attendance records for today and clock them out at exactly 18:00 MYT.
     Returns count of processed records."""
-    now = get_myt_now()
-    if now.hour < 18:
+    try:
+        now = get_myt_now()
+        if now.hour < 18:
+            return 0
+
+        today_str = get_myt_today()
+        cutoff_dt = datetime(now.year, now.month, now.day, 18, 0, 0, tzinfo=MYT)
+
+        working_records = await db.attendance.find({
+            "date": today_str,
+            "status": "working"
+        }).to_list(1000)
+
+        count = 0
+        for rec in working_records:
+            try:
+                clock_in_at = datetime.fromisoformat(rec["clock_in_at"])
+                duration_minutes = int((cutoff_dt - clock_in_at).total_seconds() // 60)
+            except (KeyError, ValueError, TypeError):
+                duration_minutes = 0
+            await db.attendance.update_one(
+                {"_id": rec["_id"]},
+                {"$set": {
+                    "clock_out": "18:00:00",
+                    "clock_out_at": cutoff_dt.isoformat(),
+                    "working_duration_minutes": duration_minutes,
+                    "working_duration_display": format_duration_display(duration_minutes),
+                    "clock_out_reason": "auto",
+                    "status": "completed"
+                }}
+            )
+            count += 1
+
+        if count:
+            logger.info(f"Auto clock-out processed {count} records for {today_str}")
+        return count
+    except Exception as e:
+        logger.error(f"process_auto_clock_outs error: {e}")
         return 0
-
-    today_str = get_myt_today()
-    cutoff_dt = datetime(now.year, now.month, now.day, 18, 0, 0, tzinfo=MYT)
-
-    working_records = await db.attendance.find({
-        "date": today_str,
-        "status": "working"
-    }).to_list(1000)
-
-    count = 0
-    for rec in working_records:
-        clock_in_at = datetime.fromisoformat(rec["clock_in_at"])
-        duration_minutes = int((cutoff_dt - clock_in_at).total_seconds() // 60)
-        await db.attendance.update_one(
-            {"_id": rec["_id"]},
-            {"$set": {
-                "clock_out": "18:00:00",
-                "clock_out_at": cutoff_dt.isoformat(),
-                "working_duration_minutes": duration_minutes,
-                "working_duration_display": format_duration_display(duration_minutes),
-                "clock_out_reason": "auto",
-                "status": "completed"
-            }}
-        )
-        count += 1
-
-    if count:
-        logger.info(f"Auto clock-out processed {count} records for {today_str}")
-    return count
 
 # ─────────────────────────────────────────────
 # Dependencies
@@ -1323,67 +1330,84 @@ async def get_all_attendance_today(
     date: Optional[str] = None,
     current_user: dict = Depends(require_admin)
 ):
-    await process_auto_clock_outs()
-    target_date = date if date else get_myt_today()
-    target_date_obj = date.fromisoformat(target_date) if date else date.fromisoformat(get_myt_today())
-    working_day = is_working_day(target_date_obj)
+    try:
+        try:
+            await process_auto_clock_outs()
+        except Exception as e:
+            logger.warning(f"Auto clock-out error (non-critical): {e}")
 
-    attendance_records = await db.attendance.find(
-        {"date": target_date}
-    ).to_list(1000)
-    att_by_emp = {r["employee_id"]: doc_to_dict(r) for r in attendance_records}
+        target_date = date if date else get_myt_today()
+        try:
+            target_date_obj = date.fromisoformat(target_date)
+        except Exception:
+            target_date_obj = datetime.now(MYT).date()
+        working_day = is_working_day(target_date_obj)
 
-    active_employees = await db.profiles.find(
-        {"role": "employee", "status": "active"}, {"password_hash": 0}
-    ).to_list(1000)
+        attendance_records = await db.attendance.find(
+            {"date": target_date}
+        ).to_list(1000)
+        att_by_emp = {}
+        for r in attendance_records:
+            emp_id = r.get("employee_id")
+            if emp_id:
+                att_by_emp[str(emp_id)] = doc_to_dict(r)
 
-    attendance_list = []
-    not_clocked_in = []
-    present_count = 0
-    still_working_count = 0
-    auto_clocked_out_count = 0
+        active_employees = await db.profiles.find(
+            {"role": "employee", "status": "active"}, {"password_hash": 0}
+        ).to_list(1000)
 
-    for emp in active_employees:
-        emp_id = str(emp["_id"])
-        att = att_by_emp.get(emp_id)
-        if att:
-            present_count += 1
-            if att.get("status") == "working":
-                still_working_count += 1
-            if att.get("clock_out_reason") == "auto":
-                auto_clocked_out_count += 1
-            attendance_list.append({
-                "employee_id": emp_id,
-                "employee_name": emp.get("full_name", ""),
-                "department": emp.get("department", ""),
-                "clock_in": att.get("clock_in"),
-                "clock_out": att.get("clock_out"),
-                "working_duration_display": att.get("working_duration_display", ""),
-                "clock_out_reason": att.get("clock_out_reason"),
-                "status": att.get("status")
-            })
-        else:
-            not_clocked_in.append({
-                "employee_id": emp_id,
-                "employee_name": emp.get("full_name", ""),
-                "department": emp.get("department", "")
-            })
+        attendance_list = []
+        not_clocked_in = []
+        present_count = 0
+        still_working_count = 0
+        auto_clocked_out_count = 0
 
-    absent_count = 0 if not working_day else len(not_clocked_in)
+        for emp in active_employees:
+            emp_id = str(emp["_id"])
+            att = att_by_emp.get(emp_id)
+            if att:
+                present_count += 1
+                if att.get("status") == "working":
+                    still_working_count += 1
+                if att.get("clock_out_reason") == "auto":
+                    auto_clocked_out_count += 1
+                attendance_list.append({
+                    "employee_id": emp_id,
+                    "employee_name": emp.get("full_name", ""),
+                    "department": emp.get("department", ""),
+                    "clock_in": att.get("clock_in"),
+                    "clock_out": att.get("clock_out"),
+                    "working_duration_display": att.get("working_duration_display", ""),
+                    "clock_out_reason": att.get("clock_out_reason"),
+                    "status": att.get("status")
+                })
+            else:
+                not_clocked_in.append({
+                    "employee_id": emp_id,
+                    "employee_name": emp.get("full_name", ""),
+                    "department": emp.get("department", "")
+                })
 
-    return {
-        "date": target_date,
-        "is_working_day": working_day,
-        "attendance": attendance_list,
-        "not_clocked_in": not_clocked_in,
-        "summary": {
-            "total_employees": len(active_employees),
-            "present_today": present_count,
-            "absent_today": absent_count,
-            "still_working": still_working_count,
-            "auto_clocked_out": auto_clocked_out_count
+        absent_count = 0 if not working_day else len(not_clocked_in)
+
+        return {
+            "date": target_date,
+            "is_working_day": working_day,
+            "attendance": attendance_list,
+            "not_clocked_in": not_clocked_in,
+            "summary": {
+                "total_employees": len(active_employees),
+                "present_today": present_count,
+                "absent_today": absent_count,
+                "still_working": still_working_count,
+                "auto_clocked_out": auto_clocked_out_count
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Error in get_all_attendance_today: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @api_router.get("/attendance/employee/{employee_id}")
 async def get_employee_attendance(employee_id: str, current_user: dict = Depends(require_admin)):

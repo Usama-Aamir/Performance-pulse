@@ -12,6 +12,7 @@ import ReportsManagement from '@/pages/ReportsManagement';
 import BossDashboard from '@/pages/BossDashboard';
 import AttendancePage from '@/pages/AttendancePage';
 import AttendanceHistoryPage from '@/pages/AttendanceHistoryPage';
+import ReportsHistoryPage from '@/pages/ReportsHistoryPage';
 import EmployeeProfile from '@/pages/EmployeeProfile';
 import MyProfile from '@/pages/MyProfile';
 import '@/App.css';
@@ -74,6 +75,7 @@ function App() {
           {/* Attendance (admin + boss) */}
           <Route path="/attendance" element={<ProtectedRoute roles={['admin', 'boss']}><AttendancePage /></ProtectedRoute>} />
           <Route path="/attendance/history" element={<ProtectedRoute roles={['admin', 'boss']}><AttendanceHistoryPage /></ProtectedRoute>} />
+          <Route path="/reports/history" element={<ProtectedRoute roles={['admin', 'boss']}><ReportsHistoryPage /></ProtectedRoute>} />
 
           {/* Shared: Employee Profile (admin + boss) */}
           <Route path="/employee/:id" element={<ProtectedRoute roles={['admin', 'boss']}><EmployeeProfile /></ProtectedRoute>} />

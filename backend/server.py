@@ -437,6 +437,7 @@ async def require_admin(current_user: dict = Depends(require_active)):
 async def startup():
     await db.profiles.create_index("email", unique=True)
     await db.daily_reports.create_index([("employee_id", 1), ("report_date", 1)], unique=True)
+    await db.daily_reports.create_index([("report_date", 1), ("employee_id", 1)])
     await db.login_attempts.create_index("email")
     await db.login_attempts.create_index("attempted_at")
     await db.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)
@@ -957,6 +958,163 @@ async def get_report(report_id: str, current_user: dict = Depends(require_active
     if current_user["role"] == "employee" and report.get("employee_id") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     return doc_to_dict(report)
+
+@api_router.get("/reports/history")
+async def get_reports_history(
+    start_date: str,
+    end_date: str,
+    employee_id: Optional[str] = None,
+    status: Optional[str] = "all",
+    current_user: dict = Depends(require_admin)
+):
+    try:
+        from bson import ObjectId as _OID
+
+        active_employees = await db.profiles.find(
+            {"role": "employee", "status": "active"}, {"password_hash": 0}
+        ).to_list(1000)
+
+        if employee_id:
+            active_employees = [e for e in active_employees if str(e["_id"]) == employee_id]
+
+        emp_map = {str(e["_id"]): e for e in active_employees}
+
+        query = {"report_date": {"$gte": start_date, "$lte": end_date}}
+        if employee_id:
+            query["employee_id"] = employee_id
+
+        reports = await db.daily_reports.find(query).to_list(2000)
+        report_map = {}
+        for r in reports:
+            key = f"{r.get('employee_id')}_{r.get('report_date')}"
+            report_map[key] = r
+
+        start_d = date.fromisoformat(start_date)
+        end_d = date.fromisoformat(end_date)
+
+        result = []
+        cur = start_d
+        while cur <= end_d:
+            if not is_working_day(cur):
+                cur += timedelta(days=1)
+                continue
+            cur_str = cur.isoformat()
+            for emp in active_employees:
+                eid = str(emp["_id"])
+                key = f"{eid}_{cur_str}"
+                rep = report_map.get(key)
+                if rep:
+                    if status == "missing":
+                        continue
+                    result.append({
+                        "id": str(rep.get("_id", "")),
+                        "employee_id": eid,
+                        "employee_name": emp.get("full_name", rep.get("employee_name", "")),
+                        "department": emp.get("department", ""),
+                        "report_date": cur_str,
+                        "task_category": rep.get("task_category", ""),
+                        "task_status": rep.get("task_status", ""),
+                        "calls_made": rep.get("calls_made", 0),
+                        "follow_ups": rep.get("follow_ups", 0),
+                        "interested_leads": rep.get("interested_leads", 0),
+                        "review_status": rep.get("review_status", ""),
+                        "submitted_at": rep.get("created_at", ""),
+                        "submitted_after_6pm": rep.get("submitted_after_6pm", False),
+                        "upload_source": rep.get("upload_source", ""),
+                        "original_filename": rep.get("original_filename", ""),
+                        "report_status": "submitted"
+                    })
+                else:
+                    if status == "submitted":
+                        continue
+                    result.append({
+                        "id": None,
+                        "employee_id": eid,
+                        "employee_name": emp.get("full_name", ""),
+                        "department": emp.get("department", ""),
+                        "report_date": cur_str,
+                        "task_category": None,
+                        "task_status": None,
+                        "calls_made": None,
+                        "follow_ups": None,
+                        "interested_leads": None,
+                        "review_status": None,
+                        "submitted_at": None,
+                        "submitted_after_6pm": None,
+                        "upload_source": None,
+                        "original_filename": None,
+                        "report_status": "missing"
+                    })
+            cur += timedelta(days=1)
+
+        result.sort(key=lambda x: (x["report_date"], x["employee_name"]), reverse=True)
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_reports_history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/reports/history/summary")
+async def get_reports_history_summary(
+    start_date: str,
+    end_date: str,
+    employee_id: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    try:
+        active_employees = await db.profiles.find(
+            {"role": "employee", "status": "active"}, {"_id": 1, "full_name": 1}
+        ).to_list(1000)
+
+        if employee_id:
+            active_employees = [e for e in active_employees if str(e["_id"]) == employee_id]
+
+        emp_count = len(active_employees)
+
+        start_d = date.fromisoformat(start_date)
+        end_d = date.fromisoformat(end_date)
+        working_days = 0
+        cur = start_d
+        while cur <= end_d:
+            if is_working_day(cur):
+                working_days += 1
+            cur += timedelta(days=1)
+
+        total_expected = working_days * emp_count
+
+        query = {"report_date": {"$gte": start_date, "$lte": end_date}}
+        if employee_id:
+            query["employee_id"] = employee_id
+
+        reports = await db.daily_reports.find(query).to_list(2000)
+        total_submitted = len(reports)
+        total_missing = max(0, total_expected - total_submitted)
+        submission_rate = round(total_submitted / total_expected * 100, 1) if total_expected > 0 else 0
+
+        emp_report_counts = {}
+        for r in reports:
+            eid = r.get("employee_id")
+            if eid:
+                emp_report_counts[eid] = emp_report_counts.get(eid, 0) + 1
+
+        top_performer = None
+        if emp_report_counts and working_days > 0:
+            top_eid = max(emp_report_counts, key=emp_report_counts.get)
+            top_count = emp_report_counts[top_eid]
+            top_emp = next((e for e in active_employees if str(e["_id"]) == top_eid), None)
+            top_name = top_emp.get("full_name", "Unknown") if top_emp else "Unknown"
+            top_rate = round(top_count / working_days * 100, 1)
+            top_performer = {"name": top_name, "submission_count": top_count, "rate": top_rate}
+
+        return {
+            "total_expected": total_expected,
+            "total_submitted": total_submitted,
+            "total_missing": total_missing,
+            "submission_rate": submission_rate,
+            "top_performer": top_performer
+        }
+    except Exception as e:
+        logger.error(f"Error in get_reports_history_summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.put("/reports/{report_id}/review")
 async def review_report(report_id: str, request: Request, current_user: dict = Depends(require_admin)):

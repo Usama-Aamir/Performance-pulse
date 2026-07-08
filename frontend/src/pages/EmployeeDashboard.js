@@ -65,6 +65,7 @@ export default function EmployeeDashboard() {
   const [attLoading, setAttLoading] = useState(false);
   const [liveDuration, setLiveDuration] = useState('');
   const [myHistory, setMyHistory] = useState(null);
+  const [myReportsHistory, setMyReportsHistory] = useState(null);
 
   // upload flow
   const [selectedFile, setSelectedFile] = useState(null);
@@ -103,11 +104,12 @@ export default function EmployeeDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [todayRes, recentRes, attRes, histRes] = await Promise.all([
+      const [todayRes, recentRes, attRes, histRes, myReportsRes] = await Promise.all([
         API.get('/reports/today'),
         API.get('/reports/my'),
         API.get('/attendance/today'),
         API.get('/attendance/my-history'),
+        API.get('/reports/my'),
       ]);
       setTodayReport(todayRes.data?.report || null);
       setIsWorkingDay(todayRes.data?.is_working_day !== false);
@@ -115,6 +117,7 @@ export default function EmployeeDashboard() {
       setAttendance(attRes.data?.attendance || null);
       setAttWorkingDay(attRes.data?.is_working_day !== false);
       setMyHistory(histRes.data);
+      setMyReportsHistory(myReportsRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -578,6 +581,11 @@ export default function EmployeeDashboard() {
             )}
           </div>
         )}
+
+        {/* My Reports History */}
+        {myReportsHistory && (
+          <MyReportsHistoryCard reports={myReportsHistory} today={today} />
+        )}
       </main>
     </div>
   );
@@ -673,5 +681,89 @@ function ManualForm({ onSuccess }) {
         {submitting ? 'Submitting...' : 'Submit Manually'}
       </button>
     </form>
+  );
+}
+
+// ─── My Reports History Card ─────────────────────────────────────
+function MyReportsHistoryCard({ reports, today }) {
+  const monthPrefix = today.substring(0, 7);
+  const monthReports = reports.filter(r => (r.report_date || '').startsWith(monthPrefix));
+
+  const submittedCount = monthReports.length;
+  const todayDate = new Date(today + 'T00:00:00');
+  let workingDays = 0;
+  const firstOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+  const cur = new Date(firstOfMonth);
+  while (cur <= todayDate) {
+    const dow = cur.getDay();
+    if (dow !== 0) workingDays++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  const submissionRate = workingDays > 0 ? Math.round(submittedCount / workingDays * 100) : 0;
+
+  const formatRepDate = (d) => {
+    try { return format(new Date(d + 'T00:00:00'), 'dd MMM'); }
+    catch { return d; }
+  };
+  const formatRepDateTime = (dt) => {
+    if (!dt) return '—';
+    try { return format(new Date(dt), 'dd MMM, HH:mm'); }
+    catch { return dt; }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-sm" data-testid="my-reports-history">
+      <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-blue-800" />
+          <h3 className="font-semibold text-slate-900 text-sm">My Reports History</h3>
+        </div>
+        <span className="text-xs text-slate-400">This Month</span>
+      </div>
+      <div className="p-4 grid grid-cols-3 gap-3 border-b border-slate-100">
+        <div className="text-center">
+          <p className="text-xl font-bold text-emerald-600">{submittedCount}</p>
+          <p className="text-xs text-slate-500">Submitted</p>
+        </div>
+        <div className="text-center">
+          <p className="text-xl font-bold text-slate-700">{workingDays}</p>
+          <p className="text-xs text-slate-500">Working Days</p>
+        </div>
+        <div className="text-center">
+          <p className="text-xl font-bold text-blue-600">{submissionRate}%</p>
+          <p className="text-xs text-slate-500">Submission Rate</p>
+        </div>
+      </div>
+      {monthReports.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-4 py-2 font-semibold text-slate-500">Date</th>
+                <th className="text-left px-4 py-2 font-semibold text-slate-500">Task Category</th>
+                <th className="text-left px-4 py-2 font-semibold text-slate-500">Task Status</th>
+                <th className="text-center px-4 py-2 font-semibold text-slate-500">Calls</th>
+                <th className="text-center px-4 py-2 font-semibold text-slate-500">Leads</th>
+                <th className="text-left px-4 py-2 font-semibold text-slate-500">Submitted At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthReports.slice(0, 10).map((r, i) => (
+                <tr key={r.id || i} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-2 text-slate-600">{formatRepDate(r.report_date)}</td>
+                  <td className="px-4 py-2 text-slate-600">{r.task_category}</td>
+                  <td className="px-4 py-2"><StatusBadge status={r.task_status} /></td>
+                  <td className="px-4 py-2 text-center text-slate-600">{r.calls_made}</td>
+                  <td className="px-4 py-2 text-center text-slate-600">{r.interested_leads}</td>
+                  <td className="px-4 py-2 text-slate-500 text-xs">{formatRepDateTime(r.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="p-6 text-center text-slate-500 text-sm">No reports submitted this month yet</div>
+      )}
+    </div>
   );
 }

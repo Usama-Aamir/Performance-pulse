@@ -689,6 +689,27 @@ function MyReportsHistoryCard({ reports, today }) {
   const monthPrefix = today.substring(0, 7);
   const monthReports = reports.filter(r => (r.report_date || '').startsWith(monthPrefix));
 
+  const downloadReport = async (reportId) => {
+    if (!reportId) return;
+    try {
+      const res = await API.get(`/reports/${reportId}/download`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = res.headers['content-disposition'] || '';
+      let filename = `Report_${reportId}.xlsx`;
+      const match = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (match) filename = match[1];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to download report. Please try again.');
+    }
+  };
+
   const submittedCount = monthReports.length;
   const todayDate = new Date(today + 'T00:00:00');
   let workingDays = 0;
@@ -745,6 +766,7 @@ function MyReportsHistoryCard({ reports, today }) {
                 <th className="text-center px-4 py-2 font-semibold text-slate-500">Calls</th>
                 <th className="text-center px-4 py-2 font-semibold text-slate-500">Leads</th>
                 <th className="text-left px-4 py-2 font-semibold text-slate-500">Submitted At</th>
+                <th className="text-center px-4 py-2 font-semibold text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -756,6 +778,16 @@ function MyReportsHistoryCard({ reports, today }) {
                   <td className="px-4 py-2 text-center text-slate-600">{r.calls_made}</td>
                   <td className="px-4 py-2 text-center text-slate-600">{r.interested_leads}</td>
                   <td className="px-4 py-2 text-slate-500 text-xs">{formatRepDateTime(r.created_at)}</td>
+                  <td className="px-4 py-2 text-center">
+                    <button
+                      onClick={() => downloadReport(r.id)}
+                      className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-600 font-medium"
+                      data-testid={`my-report-download-btn-${i}`}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

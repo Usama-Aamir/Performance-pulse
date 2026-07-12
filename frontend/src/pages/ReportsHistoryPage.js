@@ -164,6 +164,27 @@ export default function ReportsHistoryPage() {
     }
   };
 
+  const downloadReport = async (reportId) => {
+    if (!reportId) return;
+    try {
+      const res = await API.get(`/reports/${reportId}/download`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = res.headers['content-disposition'] || '';
+      let filename = `Report_${reportId}.xlsx`;
+      const match = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (match) filename = match[1];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to download report. Please try again.');
+    }
+  };
+
   const exportToExcel = () => {
     const headers = ['Date', 'Employee Name', 'Department', 'Task Category', 'Task Status', 'Calls Made', 'Leads Contacted', 'Status', 'Submitted At'];
     const rows = sortedRecords.map(r => [
@@ -367,14 +388,24 @@ export default function ReportsHistoryPage() {
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           {row.report_status === 'submitted' && row.id && (
-                            <button
-                              onClick={() => viewReportDetail(row.id)}
-                              className="inline-flex items-center gap-1 text-xs text-blue-800 hover:text-blue-600 font-medium"
-                              data-testid={`reports-view-btn-${i}`}
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              View
-                            </button>
+                            <div className="flex items-center justify-center gap-3">
+                              <button
+                                onClick={() => viewReportDetail(row.id)}
+                                className="inline-flex items-center gap-1 text-xs text-blue-800 hover:text-blue-600 font-medium"
+                                data-testid={`reports-view-btn-${i}`}
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                View
+                              </button>
+                              <button
+                                onClick={() => downloadReport(row.id)}
+                                className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-600 font-medium"
+                                data-testid={`reports-download-btn-${i}`}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                Download
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -430,12 +461,24 @@ export default function ReportsHistoryPage() {
                 <FileText className="w-5 h-5 text-blue-800" />
                 <h3 className="font-semibold text-slate-900 text-sm">Report Details</h3>
               </div>
-              <button
-                onClick={() => { setSelectedReport(null); setReportDetail(null); }}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {reportDetail && (
+                  <button
+                    onClick={() => downloadReport(reportDetail.id)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-medium"
+                    data-testid="report-modal-download-btn"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Excel
+                  </button>
+                )}
+                <button
+                  onClick={() => { setSelectedReport(null); setReportDetail(null); }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             {detailLoading ? (
               <div className="p-8 text-center text-slate-500 text-sm">Loading report...</div>

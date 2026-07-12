@@ -442,7 +442,7 @@ async def startup():
     await db.login_attempts.create_index("attempted_at")
     await db.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)
     await db.attendance.create_index([("date", 1), ("employee_id", 1)])
-    await db.activity_logs.create_index("created_at", -1)
+    await db.activity_logs.create_index([("created_at", -1)])
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")

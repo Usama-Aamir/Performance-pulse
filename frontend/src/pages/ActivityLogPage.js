@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import API from '@/lib/api';
+import { useAuth, API } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { Calendar, Download, RefreshCw, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 

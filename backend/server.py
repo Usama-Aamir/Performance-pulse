@@ -1035,13 +1035,15 @@ async def get_report(report_id: str, current_user: dict = Depends(require_active
     return doc_to_dict(report)
 
 @api_router.get("/reports/{report_id}/download")
-async def download_report_excel(report_id: str, current_user: dict = Depends(require_admin)):
+async def download_report_excel(report_id: str, current_user: dict = Depends(require_active)):
     try:
         report = await db.daily_reports.find_one({"_id": ObjectId(report_id)})
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid report ID")
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+    if current_user["role"] == "employee" and report.get("employee_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     employee_name = report.get("employee_name", "Employee")
     report_date = report.get("report_date", "unknown")

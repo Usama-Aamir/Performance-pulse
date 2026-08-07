@@ -16,6 +16,9 @@ import ReportsHistoryPage from '@/pages/ReportsHistoryPage';
 import ActivityLogPage from '@/pages/ActivityLogPage';
 import EmployeeProfile from '@/pages/EmployeeProfile';
 import MyProfile from '@/pages/MyProfile';
+import LeaveRequestsPage from '@/pages/LeaveRequestsPage';
+import LeaveManagementPage from '@/pages/LeaveManagementPage';
+import MonthlyAttendanceReportPage from '@/pages/MonthlyAttendanceReportPage';
 import '@/App.css';
 
 const Spinner = () => (
@@ -64,6 +67,7 @@ function App() {
           {/* Employee */}
           <Route path="/dashboard" element={<ProtectedRoute roles={['employee']}><EmployeeDashboard /></ProtectedRoute>} />
           <Route path="/my-reports" element={<ProtectedRoute roles={['employee']}><MyReports /></ProtectedRoute>} />
+          <Route path="/leave-requests" element={<ProtectedRoute roles={['employee']}><LeaveRequestsPage /></ProtectedRoute>} />
 
           {/* Admin */}
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
@@ -77,6 +81,8 @@ function App() {
           <Route path="/attendance" element={<ProtectedRoute roles={['admin', 'boss']}><AttendancePage /></ProtectedRoute>} />
           <Route path="/attendance/history" element={<ProtectedRoute roles={['admin', 'boss']}><AttendanceHistoryPage /></ProtectedRoute>} />
           <Route path="/reports/history" element={<ProtectedRoute roles={['admin', 'boss']}><ReportsHistoryPage /></ProtectedRoute>} />
+          <Route path="/leave-management" element={<ProtectedRoute roles={['admin', 'boss']}><LeaveManagementPage /></ProtectedRoute>} />
+          <Route path="/monthly-attendance" element={<ProtectedRoute roles={['admin', 'boss']}><MonthlyAttendanceReportPage /></ProtectedRoute>} />
           <Route path="/admin/activity-log" element={<ProtectedRoute roles={['admin', 'boss']}><ActivityLogPage /></ProtectedRoute>} />
 
           {/* Shared: Employee Profile (admin + boss) */}

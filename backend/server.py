@@ -5,10 +5,11 @@ from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Respons
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, time
 from zoneinfo import ZoneInfo
 from typing import Optional, List
 import os
+import calendar
 import bcrypt
 import jwt
 import logging
@@ -29,6 +30,7 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM = "HS256"
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+LATE_ARRIVAL_THRESHOLD_MINUTES = int(os.environ.get("LATE_ARRIVAL_THRESHOLD_MINUTES", "15"))
 # Cookie settings — set COOKIE_SECURE=true on Render (HTTPS) for cross-origin cookie support
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 COOKIE_SAMESITE = "none" if COOKIE_SECURE else "lax"
@@ -318,8 +320,52 @@ def get_myt_today() -> str:
 def get_myt_now() -> datetime:
     return datetime.now(MYT)
 
+def get_saturdays_in_month(year: int, month: int) -> List[date]:
+    """Return all Saturdays in the given month."""
+    saturdays = []
+    cal = calendar.monthcalendar(year, month)
+    for week in cal:
+        if week[calendar.SATURDAY] != 0:
+            saturdays.append(date(year, month, week[calendar.SATURDAY]))
+    return saturdays
+
 def is_working_day(d: date) -> bool:
-    return d.weekday() < 6  # Mon=0 ... Sat=5
+    """Check if a date is a working day.
+    Mon-Fri: always working
+    Saturday: only first and last Saturday of the month are working (half-days)
+    Sunday: never working
+    """
+    weekday = d.weekday()
+    if weekday < 5:  # Monday-Friday
+        return True
+    if weekday == 6:  # Sunday
+        return False
+    # Saturday - check if first or last of the month
+    saturdays = get_saturdays_in_month(d.year, d.month)
+    if not saturdays:
+        return False
+    return d == saturdays[0] or d == saturdays[-1]
+
+def is_half_day(d: date) -> bool:
+    """Check if a date is a half-day (first or last Saturday of the month)."""
+    if d.weekday() != 5:  # Not Saturday
+        return False
+    saturdays = get_saturdays_in_month(d.year, d.month)
+    if not saturdays:
+        return False
+    return d == saturdays[0] or d == saturdays[-1]
+
+def get_auto_clockout_time(d: date) -> Optional[time]:
+    """Get the auto clock-out time for a given date.
+    Mon-Fri: 18:00 (6 PM)
+    First/last Saturday: 13:00 (1 PM)
+    Other days: None (not a working day)
+    """
+    if not is_working_day(d):
+        return None
+    if is_half_day(d):
+        return time(13, 0, 0)  # 1 PM
+    return time(18, 0, 0)  # 6 PM
 
 def get_working_days_in_range(start: date, end: date) -> List[date]:
     days, current = [], start
@@ -349,16 +395,21 @@ def format_duration_display(minutes: int) -> str:
     return f"{m}m"
 
 async def process_auto_clock_outs() -> int:
-    """Lazy auto-clock-out: if current MYT time >= 18:00, find all 'working'
-    attendance records for today and clock them out at exactly 18:00 MYT.
+    """Lazy auto-clock-out: if current MYT time >= auto clock-out time for today,
+    find all 'working' attendance records for today and clock them out.
+    Auto clock-out time is 18:00 for Mon-Fri, 13:00 for first/last Saturday.
     Returns count of processed records."""
     try:
         now = get_myt_now()
-        if now.hour < 18:
-            return 0
+        today_date = now.date()
+        cutoff_time = get_auto_clockout_time(today_date)
+        if cutoff_time is None:
+            return 0  # Not a working day
+        if now.time() < cutoff_time:
+            return 0  # Not yet time to auto clock-out
 
         today_str = get_myt_today()
-        cutoff_dt = datetime(now.year, now.month, now.day, 18, 0, 0, tzinfo=MYT)
+        cutoff_dt = datetime.combine(today_date, cutoff_time, tzinfo=MYT)
 
         working_records = await db.attendance.find({
             "date": today_str,
@@ -375,7 +426,7 @@ async def process_auto_clock_outs() -> int:
             await db.attendance.update_one(
                 {"_id": rec["_id"]},
                 {"$set": {
-                    "clock_out": "18:00:00",
+                    "clock_out": cutoff_time.strftime("%H:%M:%S"),
                     "clock_out_at": cutoff_dt.isoformat(),
                     "working_duration_minutes": duration_minutes,
                     "working_duration_display": format_duration_display(duration_minutes),
@@ -386,7 +437,7 @@ async def process_auto_clock_outs() -> int:
             count += 1
 
         if count:
-            logger.info(f"Auto clock-out processed {count} records for {today_str}")
+            logger.info(f"Auto clock-out processed {count} records for {today_str} at {cutoff_time}")
         return count
     except Exception as e:
         logger.error(f"process_auto_clock_outs error: {e}")
@@ -438,11 +489,17 @@ async def startup():
     await db.profiles.create_index("email", unique=True)
     await db.daily_reports.create_index([("employee_id", 1), ("report_date", 1)], unique=True)
     await db.daily_reports.create_index([("report_date", 1), ("employee_id", 1)])
+    await db.daily_reports.create_index([("upload_source", 1), ("report_date", -1)])
+    await db.daily_reports.create_index([("employee_id", 1), ("upload_source", 1), ("report_date", -1)])
     await db.login_attempts.create_index("email")
     await db.login_attempts.create_index("attempted_at")
     await db.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)
     await db.attendance.create_index([("date", 1), ("employee_id", 1)])
+    await db.attendance.create_index([("date", 1)])
     await db.activity_logs.create_index([("created_at", -1)])
+    await db.leave_requests.create_index([("employee_id", 1), ("date_from", -1)])
+    await db.leave_requests.create_index([("status", 1), ("date_from", -1)])
+    await db.leave_requests.create_index([("date_from", 1), ("date_to", 1)])
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")
@@ -1049,9 +1106,9 @@ async def download_report_excel(report_id: str, current_user: dict = Depends(req
     report_date = report.get("report_date", "unknown")
     filename = f"Report_{employee_name}_{report_date}.xlsx"
 
-    if report.get("upload_source") == "excel" and report.get("original_filename"):
+    if report.get("upload_source") == "excel" and report.get("file_path"):
         try:
-            data, content_type = get_object(report["original_filename"])
+            data, content_type = get_object(report["file_path"])
             return Response(
                 content=data,
                 media_type=content_type,
@@ -1118,6 +1175,41 @@ async def download_report_excel(report_id: str, current_user: dict = Depends(req
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
     )
+
+@api_router.get("/reports/uploads")
+async def get_uploaded_reports(
+    employee_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    """List uploaded Excel reports with metadata (for boss/admin)."""
+    query = {"upload_source": "excel"}
+    if employee_id:
+        query["employee_id"] = employee_id
+    if date_from or date_to:
+        date_q = {}
+        if date_from:
+            date_q["$gte"] = date_from
+        if date_to:
+            date_q["$lte"] = date_to
+        query["report_date"] = date_q
+    
+    reports = await db.daily_reports.find(query).sort("report_date", -1).to_list(500)
+    
+    results = []
+    for r in reports:
+        results.append({
+            "id": str(r["_id"]),
+            "employee_id": r.get("employee_id"),
+            "employee_name": r.get("employee_name"),
+            "report_date": r.get("report_date"),
+            "original_filename": r.get("original_filename"),
+            "file_path": r.get("file_path"),
+            "created_at": r.get("created_at")
+        })
+    
+    return results
 
 @api_router.get("/reports/history")
 async def get_reports_history(
@@ -1862,6 +1954,444 @@ async def get_attendance_summary(current_user: dict = Depends(require_admin)):
         "auto_clocked_out": auto_clocked_out,
         "date": today_str,
         "is_working_day": working_day
+    }
+
+# ─────────────────────────────────────────────
+# Leave Requests
+# ─────────────────────────────────────────────
+
+@api_router.post("/leave-requests")
+async def submit_leave_request(request: Request, current_user: dict = Depends(require_active)):
+    if current_user["role"] != "employee":
+        raise HTTPException(status_code=403, detail="Only employees can submit leave requests")
+    
+    body = await request.json()
+    date_from = body.get("date_from")
+    date_to = body.get("date_to")
+    reason = body.get("reason", "").strip()
+    
+    if not date_from or not date_to:
+        raise HTTPException(status_code=400, detail="date_from and date_to are required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    
+    try:
+        date.fromisoformat(date_from)
+        date.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    if date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be before or equal to date_to")
+    
+    # Check for overlapping pending or approved requests
+    existing = await db.leave_requests.find({
+        "employee_id": current_user["id"],
+        "status": {"$in": ["pending", "approved"]},
+        "$or": [
+            {"date_from": {"$lte": date_to}, "date_to": {"$gte": date_from}}
+        ]
+    }).to_list(10)
+    
+    if existing:
+        raise HTTPException(status_code=409, detail="Leave request overlaps with an existing pending or approved request")
+    
+    leave_doc = {
+        "employee_id": current_user["id"],
+        "employee_name": current_user.get("full_name", ""),
+        "date_from": date_from,
+        "date_to": date_to,
+        "reason": reason,
+        "status": "pending",
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_at": None,
+        "reviewed_by": None,
+        "boss_remarks": None
+    }
+    
+    result = await db.leave_requests.insert_one(leave_doc)
+    leave_doc["id"] = str(result.inserted_id)
+    leave_doc.pop("_id", None)
+    
+    return leave_doc
+
+@api_router.get("/leave-requests/my")
+async def get_my_leave_requests(current_user: dict = Depends(require_active)):
+    requests = await db.leave_requests.find(
+        {"employee_id": current_user["id"]}
+    ).sort("date_from", -1).to_list(100)
+    return [doc_to_dict(r) for r in requests]
+
+@api_router.get("/leave-requests/pending")
+async def get_pending_leave_requests(current_user: dict = Depends(require_admin)):
+    requests = await db.leave_requests.find(
+        {"status": "pending"}
+    ).sort("requested_at", 1).to_list(100)
+    return [doc_to_dict(r) for r in requests]
+
+@api_router.put("/leave-requests/{request_id}/approve")
+async def approve_leave_request(request_id: str, request: Request, current_user: dict = Depends(require_admin)):
+    body = await request.json()
+    boss_remarks = body.get("boss_remarks", "").strip()
+    
+    try:
+        result = await db.leave_requests.update_one(
+            {"_id": ObjectId(request_id), "status": "pending"},
+            {"$set": {
+                "status": "approved",
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_by": current_user["id"],
+                "boss_remarks": boss_remarks if boss_remarks else None
+            }}
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request ID")
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Pending leave request not found")
+    
+    updated = await db.leave_requests.find_one({"_id": ObjectId(request_id)})
+    return doc_to_dict(updated)
+
+@api_router.put("/leave-requests/{request_id}/reject")
+async def reject_leave_request(request_id: str, request: Request, current_user: dict = Depends(require_admin)):
+    body = await request.json()
+    boss_remarks = body.get("boss_remarks", "").strip()
+    
+    try:
+        result = await db.leave_requests.update_one(
+            {"_id": ObjectId(request_id), "status": "pending"},
+            {"$set": {
+                "status": "rejected",
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_by": current_user["id"],
+                "boss_remarks": boss_remarks if boss_remarks else None
+            }}
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request ID")
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Pending leave request not found")
+    
+    updated = await db.leave_requests.find_one({"_id": ObjectId(request_id)})
+    return doc_to_dict(updated)
+
+@api_router.get("/leave-requests")
+async def get_all_leave_requests(
+    employee_id: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    query = {}
+    if employee_id:
+        query["employee_id"] = employee_id
+    if status:
+        query["status"] = status
+    if date_from or date_to:
+        date_q = {}
+        if date_from:
+            date_q["$gte"] = date_from
+        if date_to:
+            date_q["$lte"] = date_to
+        query["date_from"] = date_q
+    
+    requests = await db.leave_requests.find(query).sort("date_from", -1).to_list(500)
+    return [doc_to_dict(r) for r in requests]
+
+# ─────────────────────────────────────────────
+# Monthly Attendance Reports
+# ─────────────────────────────────────────────
+
+@api_router.get("/attendance/monthly-report")
+async def get_monthly_attendance_report(
+    year: int,
+    month: int,
+    current_user: dict = Depends(require_admin)
+):
+    """Get aggregated monthly attendance report for all employees."""
+    await process_auto_clock_outs()
+    
+    # Get all active employees
+    active_employees = await db.profiles.find(
+        {"role": "employee", "status": "active"}
+    ).to_list(1000)
+    
+    # Calculate working days in the month
+    first_day = date(year, month, 1)
+    if month == 12:
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+    
+    working_days = []
+    current = first_day
+    while current <= last_day:
+        if is_working_day(current):
+            working_days.append(current)
+        current += timedelta(days=1)
+    
+    working_days_count = len(working_days)
+    
+    # Get approved leave requests for the month
+    leave_requests = await db.leave_requests.find({
+        "status": "approved",
+        "$or": [
+            {"date_from": {"$lte": last_day.isoformat()}, "date_to": {"$gte": first_day.isoformat()}}
+        ]
+    }).to_list(500)
+    
+    # Build leave map: employee_id -> set of leave dates
+    leave_map = {}
+    for lr in leave_requests:
+        emp_id = lr["employee_id"]
+        if emp_id not in leave_map:
+            leave_map[emp_id] = set()
+        lr_start = date.fromisoformat(lr["date_from"])
+        lr_end = date.fromisoformat(lr["date_to"])
+        current = max(lr_start, first_day)
+        while current <= min(lr_end, last_day):
+            leave_map[emp_id].add(current)
+            current += timedelta(days=1)
+    
+    # Get attendance records for the month
+    attendance_records = await db.attendance.find({
+        "date": {"$gte": first_day.isoformat(), "$lte": last_day.isoformat()}
+    }).to_list(5000)
+    
+    # Build attendance map: (employee_id, date) -> record
+    attendance_map = {}
+    for att in attendance_records:
+        key = (att["employee_id"], att["date"])
+        attendance_map[key] = att
+    
+    # Calculate metrics for each employee
+    threshold_time = time(9, LATE_ARRIVAL_THRESHOLD_MINUTES, 0)
+    
+    results = []
+    for emp in active_employees:
+        emp_id = str(emp["_id"])
+        emp_name = emp.get("full_name", "")
+        department = emp.get("department", "")
+        
+        days_present = 0
+        days_on_leave = 0
+        days_absent = 0
+        total_working_minutes = 0
+        late_arrivals_count = 0
+        auto_clock_outs_count = 0
+        
+        for work_day in working_days:
+            day_str = work_day.isoformat()
+            att = attendance_map.get((emp_id, day_str))
+            
+            if att:
+                days_present += 1
+                total_working_minutes += att.get("working_duration_minutes", 0)
+                
+                # Check late arrival
+                try:
+                    clock_in_str = att.get("clock_in", "")
+                    if clock_in_str:
+                        clock_in_time = datetime.strptime(clock_in_str, "%H:%M:%S").time()
+                        if clock_in_time > threshold_time:
+                            late_arrivals_count += 1
+                except (ValueError, TypeError):
+                    pass
+                
+                # Check auto clock-out
+                if att.get("clock_out_reason") == "auto":
+                    auto_clock_outs_count += 1
+            elif emp_id in leave_map and work_day in leave_map[emp_id]:
+                days_on_leave += 1
+            else:
+                days_absent += 1
+        
+        average_hours_per_day = 0
+        if days_present > 0:
+            average_hours_per_day = round(total_working_minutes / days_present / 60, 2)
+        
+        results.append({
+            "employee_id": emp_id,
+            "employee_name": emp_name,
+            "department": department,
+            "working_days_in_month": working_days_count,
+            "days_present": days_present,
+            "days_on_leave": days_on_leave,
+            "days_absent": days_absent,
+            "total_working_minutes": total_working_minutes,
+            "average_hours_per_day": average_hours_per_day,
+            "late_arrivals_count": late_arrivals_count,
+            "auto_clock_outs_count": auto_clock_outs_count
+        })
+    
+    return results
+
+@api_router.get("/attendance/monthly-report/{employee_id}")
+async def get_employee_monthly_drilldown(
+    employee_id: str,
+    year: int,
+    month: int,
+    current_user: dict = Depends(require_admin)
+):
+    """Get day-by-day attendance breakdown for an employee in a month."""
+    await process_auto_clock_outs()
+    
+    # Verify employee exists
+    try:
+        employee = await db.profiles.find_one({"_id": ObjectId(employee_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid employee ID")
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Calculate date range
+    first_day = date(year, month, 1)
+    if month == 12:
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+    
+    # Get working days
+    working_days = []
+    current = first_day
+    while current <= last_day:
+        if is_working_day(current):
+            working_days.append(current)
+        current += timedelta(days=1)
+    
+    working_days_count = len(working_days)
+    
+    # Get approved leave requests
+    leave_requests = await db.leave_requests.find({
+        "employee_id": employee_id,
+        "status": "approved",
+        "$or": [
+            {"date_from": {"$lte": last_day.isoformat()}, "date_to": {"$gte": first_day.isoformat()}}
+        ]
+    }).to_list(100)
+    
+    # Build leave date set
+    leave_dates = set()
+    for lr in leave_requests:
+        lr_start = date.fromisoformat(lr["date_from"])
+        lr_end = date.fromisoformat(lr["date_to"])
+        current = max(lr_start, first_day)
+        while current <= min(lr_end, last_day):
+            leave_dates.add(current)
+            current += timedelta(days=1)
+    
+    # Get attendance records
+    attendance_records = await db.attendance.find({
+        "employee_id": employee_id,
+        "date": {"$gte": first_day.isoformat(), "$lte": last_day.isoformat()}
+    }).to_list(100)
+    
+    attendance_map = {att["date"]: att for att in attendance_records}
+    
+    # Build daily breakdown
+    threshold_time = time(9, LATE_ARRIVAL_THRESHOLD_MINUTES, 0)
+    
+    days_present = 0
+    days_on_leave = 0
+    days_absent = 0
+    total_working_minutes = 0
+    late_arrivals_count = 0
+    auto_clock_outs_count = 0
+    
+    daily_breakdown = []
+    current = first_day
+    while current <= last_day:
+        day_str = current.isoformat()
+        
+        if not is_working_day(current):
+            daily_breakdown.append({
+                "date": day_str,
+                "status": "weekend",
+                "clock_in": None,
+                "clock_out": None,
+                "working_duration_minutes": None,
+                "is_late": False,
+                "is_auto_clock_out": False
+            })
+        else:
+            att = attendance_map.get(day_str)
+            if att:
+                days_present += 1
+                total_working_minutes += att.get("working_duration_minutes", 0)
+                
+                # Check late arrival
+                is_late = False
+                try:
+                    clock_in_str = att.get("clock_in", "")
+                    if clock_in_str:
+                        clock_in_time = datetime.strptime(clock_in_str, "%H:%M:%S").time()
+                        if clock_in_time > threshold_time:
+                            is_late = True
+                            late_arrivals_count += 1
+                except (ValueError, TypeError):
+                    pass
+                
+                # Check auto clock-out
+                is_auto = att.get("clock_out_reason") == "auto"
+                if is_auto:
+                    auto_clock_outs_count += 1
+                
+                daily_breakdown.append({
+                    "date": day_str,
+                    "status": "present",
+                    "clock_in": att.get("clock_in"),
+                    "clock_out": att.get("clock_out"),
+                    "working_duration_minutes": att.get("working_duration_minutes"),
+                    "is_late": is_late,
+                    "is_auto_clock_out": is_auto
+                })
+            elif current in leave_dates:
+                days_on_leave += 1
+                daily_breakdown.append({
+                    "date": day_str,
+                    "status": "on_leave",
+                    "clock_in": None,
+                    "clock_out": None,
+                    "working_duration_minutes": None,
+                    "is_late": False,
+                    "is_auto_clock_out": False
+                })
+            else:
+                days_absent += 1
+                daily_breakdown.append({
+                    "date": day_str,
+                    "status": "absent",
+                    "clock_in": None,
+                    "clock_out": None,
+                    "working_duration_minutes": None,
+                    "is_late": False,
+                    "is_auto_clock_out": False
+                })
+        
+        current += timedelta(days=1)
+    
+    average_hours_per_day = 0
+    if days_present > 0:
+        average_hours_per_day = round(total_working_minutes / days_present / 60, 2)
+    
+    return {
+        "employee_id": employee_id,
+        "employee_name": employee.get("full_name", ""),
+        "department": employee.get("department", ""),
+        "year": year,
+        "month": month,
+        "working_days_in_month": working_days_count,
+        "days_present": days_present,
+        "days_on_leave": days_on_leave,
+        "days_absent": days_absent,
+        "total_working_minutes": total_working_minutes,
+        "average_hours_per_day": average_hours_per_day,
+        "late_arrivals_count": late_arrivals_count,
+        "auto_clock_outs_count": auto_clock_outs_count,
+        "daily_breakdown": daily_breakdown
     }
 
 # ─────────────────────────────────────────────

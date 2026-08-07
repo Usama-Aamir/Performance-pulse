@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, History, FileSearch, ClipboardList
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, History, FileSearch, ClipboardList, Calendar, TrendingUp
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -18,6 +18,8 @@ const Sidebar = () => {
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/attendance/history', icon: History, label: 'Attendance History' },
     { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
+    { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
+    { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
     { to: '/admin/activity-log', icon: ClipboardList, label: 'Activity Log' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
@@ -27,6 +29,8 @@ const Sidebar = () => {
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/attendance/history', icon: History, label: 'Attendance History' },
     { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
+    { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
+    { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
     { to: '/admin/activity-log', icon: ClipboardList, label: 'Activity Log' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];

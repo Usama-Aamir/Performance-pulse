@@ -4,7 +4,7 @@ import { useAuth, API } from '@/contexts/AuthContext';
 import StatusBadge from '@/components/StatusBadge';
 import {
   Activity, LogOut, FileText, Upload, Download, CheckCircle,
-  AlertTriangle, Eye, RotateCcw, ChevronDown, ChevronUp, User, Clock
+  AlertTriangle, Eye, RotateCcw, ChevronDown, ChevronUp, User, Clock, Calendar
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -226,6 +226,10 @@ export default function EmployeeDashboard() {
           <button data-testid="nav-my-reports" onClick={() => navigate('/my-reports')}
             className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
             <FileText className="w-4 h-4" /><span className="hidden sm:inline">My Reports</span>
+          </button>
+          <button data-testid="nav-leave-requests" onClick={() => navigate('/leave-requests')}
+            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
+            <Calendar className="w-4 h-4" /><span className="hidden sm:inline">Leave Requests</span>
           </button>
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center">

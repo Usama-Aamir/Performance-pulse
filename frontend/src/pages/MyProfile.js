@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, API } from '@/contexts/AuthContext';
-import { Activity, LogOut, FileText, Save, User } from 'lucide-react';
+import { Activity, LogOut, FileText, Save, User, Calendar } from 'lucide-react';
 
 const DEPARTMENTS = ['Sales', 'Marketing', 'Operations', 'IT', 'HR', 'Management', 'Other'];
 
@@ -67,6 +67,9 @@ export default function MyProfile() {
           <button onClick={() => navigate('/dashboard')} className="text-sm text-slate-600 hover:text-slate-900">Dashboard</button>
           <button onClick={() => navigate('/my-reports')} className="text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1">
             <FileText className="w-4 h-4" /><span className="hidden sm:inline">My Reports</span>
+          </button>
+          <button onClick={() => navigate('/leave-requests')} className="text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1">
+            <Calendar className="w-4 h-4" /><span className="hidden sm:inline">Leave Requests</span>
           </button>
           <button data-testid="nav-logout" onClick={handleLogout} className="text-slate-500 hover:text-slate-700">
             <LogOut className="w-4 h-4" />

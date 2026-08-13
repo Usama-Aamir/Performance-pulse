@@ -506,6 +506,49 @@ async def startup():
     await db.messages.create_index("sender_id")
     await db.messages.create_index([("channel_id", 1), ("deleted", 1)])
     await db.message_reads.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
+
+    # Seed default channels (idempotent, non-fatal on error)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        try:
+            general = await db.channels.find_one({"name": "General", "type": "public"})
+            if not general:
+                await db.channels.insert_one({
+                    "name": "General",
+                    "type": "public",
+                    "members": [],
+                    "dm_between": None,
+                    "created_by": "system",
+                    "created_at": now_iso
+                })
+        except Exception as e:
+            logger.error(f"Channel seeding failed (General): {e}")
+
+        try:
+            management = await db.channels.find_one({"name": "Management", "type": "private"})
+            if not management:
+                try:
+                    admins = await db.profiles.find(
+                        {"role": {"$in": ["admin", "boss"]}, "status": "active"},
+                        {"_id": 1}
+                    ).to_list(100)
+                    admin_ids = [str(a["_id"]) for a in admins]
+                except Exception as e:
+                    logger.error(f"Channel seeding failed (querying admin/boss users for Management): {e}")
+                    admin_ids = []
+                await db.channels.insert_one({
+                    "name": "Management",
+                    "type": "private",
+                    "members": admin_ids,
+                    "dm_between": None,
+                    "created_by": "system",
+                    "created_at": now_iso
+                })
+        except Exception as e:
+            logger.error(f"Channel seeding failed (Management): {e}")
+    except Exception as e:
+        logger.error(f"Channel seeding failed: {e}")
+
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")

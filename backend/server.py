@@ -2530,6 +2530,261 @@ async def get_employee_attendance_summary(employee_id: str, current_user: dict =
         logger.error(f"Error in get_employee_attendance_summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ─────────────────────────────────────────────
+# MESSAGING ROUTES
+# ─────────────────────────────────────────────
+
+@api_router.get("/channels")
+async def list_channels(current_user: dict = Depends(require_active)):
+    user_id = current_user["id"]
+    query = {
+        "$or": [
+            {"type": "public"},
+            {"type": {"$in": ["private", "dm"]}, "members": user_id}
+        ]
+    }
+    channels = await db.channels.find(query).sort("name", 1).to_list(100)
+    result = []
+    for ch in channels:
+        ch_dict = doc_to_dict(ch)
+        if ch_dict["type"] == "dm":
+            other_id = next((m for m in ch_dict.get("members", []) if m != user_id), None)
+            if other_id:
+                other = await db.profiles.find_one({"_id": ObjectId(other_id)}, {"password_hash": 0})
+                if other:
+                    ch_dict["other_user"] = {
+                        "id": str(other["_id"]),
+                        "full_name": other.get("full_name", ""),
+                        "role": other.get("role", ""),
+                        "status": other.get("status", "")
+                    }
+        result.append(ch_dict)
+    return result
+
+@api_router.post("/channels")
+async def create_channel(request: Request, current_user: dict = Depends(require_admin)):
+    body = await request.json()
+    name = body.get("name", "").strip()
+    channel_type = body.get("type", "")
+    members = body.get("members", [])
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Channel name is required")
+    if channel_type not in ["public", "private"]:
+        raise HTTPException(status_code=400, detail="Type must be 'public' or 'private'")
+
+    existing = await db.channels.find_one({"name": name})
+    if existing:
+        raise HTTPException(status_code=409, detail="Channel name already exists")
+
+    channel_doc = {
+        "name": name,
+        "type": channel_type,
+        "members": members if channel_type == "private" else [],
+        "created_by": current_user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    result = await db.channels.insert_one(channel_doc)
+    channel_doc["id"] = str(result.inserted_id)
+    channel_doc.pop("_id", None)
+    return channel_doc
+
+@api_router.get("/channels/{channel_id}/messages")
+async def get_channel_messages(
+    channel_id: str,
+    before: Optional[str] = None,
+    current_user: dict = Depends(require_active)
+):
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    if ch["type"] != "public" and current_user["id"] not in ch.get("members", []):
+        raise HTTPException(status_code=403, detail="Access denied to this channel")
+
+    query = {"channel_id": ObjectId(channel_id)}
+    if before:
+        try:
+            before_dt = datetime.fromisoformat(before)
+            query["created_at"] = {"$lt": before_dt.isoformat()}
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid 'before' timestamp")
+
+    messages = await db.messages.find(query).sort("created_at", -1).limit(50).to_list(50)
+    result = []
+    for msg in reversed(messages):
+        msg_dict = doc_to_dict(msg)
+        msg_dict["channel_id"] = str(msg_dict["channel_id"])
+        result.append(msg_dict)
+    return result
+
+@api_router.post("/channels/{channel_id}/messages")
+async def send_channel_message(
+    channel_id: str,
+    request: Request,
+    current_user: dict = Depends(require_active)
+):
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    if ch["type"] != "public" and current_user["id"] not in ch.get("members", []):
+        raise HTTPException(status_code=403, detail="Access denied to this channel")
+
+    body = await request.json()
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Message content is required")
+    if len(content) > 2000:
+        raise HTTPException(status_code=400, detail="Message must be 2000 characters or less")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    msg_doc = {
+        "channel_id": ObjectId(channel_id),
+        "sender_id": current_user["id"],
+        "sender_name": current_user.get("full_name", ""),
+        "sender_role": current_user.get("role", ""),
+        "content": content,
+        "created_at": now_iso,
+        "edited_at": None,
+        "deleted": False,
+        "deleted_at": None,
+        "deleted_by": None
+    }
+    result = await db.messages.insert_one(msg_doc)
+    msg_doc["id"] = str(result.inserted_id)
+    msg_doc["channel_id"] = str(msg_doc["channel_id"])
+    msg_doc.pop("_id", None)
+    return msg_doc
+
+@api_router.put("/messages/{message_id}")
+async def edit_message(
+    message_id: str,
+    request: Request,
+    current_user: dict = Depends(require_active)
+):
+    body = await request.json()
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Message content is required")
+    if len(content) > 2000:
+        raise HTTPException(status_code=400, detail="Message must be 2000 characters or less")
+
+    try:
+        msg = await db.messages.find_one({"_id": ObjectId(message_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid message ID")
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg["sender_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the sender can edit this message")
+    if msg.get("deleted"):
+        raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.messages.update_one(
+        {"_id": ObjectId(message_id)},
+        {"$set": {"content": content, "edited_at": now_iso}}
+    )
+    updated = await db.messages.find_one({"_id": ObjectId(message_id)})
+    updated_dict = doc_to_dict(updated)
+    updated_dict["channel_id"] = str(updated_dict["channel_id"])
+    return updated_dict
+
+@api_router.delete("/messages/{message_id}")
+async def delete_message(
+    message_id: str,
+    current_user: dict = Depends(require_active)
+):
+    try:
+        msg = await db.messages.find_one({"_id": ObjectId(message_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid message ID")
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg["sender_id"] != current_user["id"] and current_user["role"] not in ["admin", "boss"]:
+        raise HTTPException(status_code=403, detail="Only the sender or an admin can delete this message")
+    if msg.get("deleted"):
+        raise HTTPException(status_code=400, detail="Message is already deleted")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.messages.update_one(
+        {"_id": ObjectId(message_id)},
+        {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": current_user["id"], "content": None}}
+    )
+    return {"message": "Message deleted"}
+
+@api_router.post("/channels/{channel_id}/read")
+async def mark_channel_read(
+    channel_id: str,
+    current_user: dict = Depends(require_active)
+):
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    if ch["type"] != "public" and current_user["id"] not in ch.get("members", []):
+        raise HTTPException(status_code=403, detail="Access denied to this channel")
+
+    last_msg = await db.messages.find(
+        {"channel_id": ObjectId(channel_id), "deleted": False}
+    ).sort("created_at", -1).limit(1).to_list(1)
+
+    last_msg_id = last_msg[0]["_id"] if last_msg else None
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    await db.message_reads.update_one(
+        {"user_id": current_user["id"], "channel_id": ObjectId(channel_id)},
+        {"$set": {
+            "last_read_message_id": last_msg_id,
+            "last_read_at": now_iso
+        }},
+        upsert=True
+    )
+    return {"message": "Channel marked as read"}
+
+@api_router.get("/channels/unread-counts")
+async def get_unread_counts(current_user: dict = Depends(require_active)):
+    user_id = current_user["id"]
+    query = {
+        "$or": [
+            {"type": "public"},
+            {"type": {"$in": ["private", "dm"]}, "members": user_id}
+        ]
+    }
+    channels = await db.channels.find(query).to_list(100)
+    result = {}
+    for ch in channels:
+        ch_id = str(ch["_id"])
+        read_record = await db.message_reads.find_one({
+            "user_id": user_id,
+            "channel_id": ch["_id"]
+        })
+        if read_record and read_record.get("last_read_at"):
+            unread_count = await db.messages.count_documents({
+                "channel_id": ch["_id"],
+                "deleted": False,
+                "created_at": {"$gt": read_record["last_read_at"]},
+                "sender_id": {"$ne": user_id}
+            })
+        else:
+            unread_count = await db.messages.count_documents({
+                "channel_id": ch["_id"],
+                "deleted": False,
+                "sender_id": {"$ne": user_id}
+            })
+        result[ch_id] = unread_count
+    return result
+
 @api_router.get("/")
 async def root():
     return {"message": "Performance Pulse API", "status": "ok"}

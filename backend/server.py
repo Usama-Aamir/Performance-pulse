@@ -1165,6 +1165,7 @@ async def get_reports_history(
                         "submitted_after_6pm": rep.get("submitted_after_6pm", False),
                         "upload_source": rep.get("upload_source", ""),
                         "original_filename": rep.get("original_filename", ""),
+                        "file_path": rep.get("file_path", ""),
                         "report_status": "submitted"
                     })
                 else:

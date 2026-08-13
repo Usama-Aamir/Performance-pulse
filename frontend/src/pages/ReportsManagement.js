@@ -212,6 +212,17 @@ function ReviewQueueTab({ employees }) {
                 <div className="flex items-center gap-2 shrink-0 ml-4">
                   <StatusBadge status={r.task_status} />
                   <StatusBadge status={r.review_status} />
+                  {r.file_path && (
+                    <button
+                      onClick={e => { e.stopPropagation(); downloadOriginalFile(r.file_path, r.original_filename); }}
+                      title="Download original uploaded file"
+                      className="flex items-center gap-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors"
+                      data-testid={`download-original-header-${r.id}`}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Original
+                    </button>
+                  )}
                   {expanded === r.id ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                 </div>
               </div>
@@ -245,7 +256,7 @@ function ReviewQueueTab({ employees }) {
                   </div>
 
                   {/* Review actions */}
-                  <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
                     <span className="text-xs text-slate-500 font-medium mr-1">Mark as:</span>
                     <button
                       data-testid={`mark-reviewed-${r.id}`}
@@ -277,7 +288,7 @@ function ReviewQueueTab({ employees }) {
                     {r.file_path && (
                       <button
                         onClick={() => downloadOriginalFile(r.file_path, r.original_filename)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors ml-auto"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors"
                         data-testid={`download-original-${r.id}`}
                       >
                         <Download className="w-3.5 h-3.5" />
@@ -640,6 +651,16 @@ function HistoryTab({ employees }) {
                               <Download className="w-3.5 h-3.5" />
                               Download
                             </button>
+                            {row.file_path && (
+                              <button
+                                onClick={() => downloadOriginalFile(row.file_path, row.original_filename)}
+                                className="inline-flex items-center gap-1 text-xs text-blue-800 hover:text-blue-600 font-medium"
+                                data-testid={`reports-download-original-btn-${i}`}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                Original
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>

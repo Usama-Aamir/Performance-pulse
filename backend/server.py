@@ -781,6 +781,19 @@ async def update_user_status(user_id: str, request: Request, current_user: dict 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if new_status == "active":
+        try:
+            general = await db.channels.find_one(
+                {"name": "General", "type": "public"}
+            )
+            if general:
+                await db.channels.update_one(
+                    {"_id": general["_id"]},
+                    {"$addToSet": {"members": user_id}}
+                )
+        except Exception as e:
+            logger.error(f"Auto-add to General channel failed: {e}")
+
     return {"message": f"Status updated to {new_status}"}
 
 @api_router.put("/users/{user_id}/role")

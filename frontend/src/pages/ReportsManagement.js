@@ -112,6 +112,26 @@ function ReviewQueueTab({ employees }) {
     fetchReports(empty);
   };
 
+  const downloadOriginalFile = async (filePath, originalFilename) => {
+    try {
+      const res = await API.get(`/files/${encodeURIComponent(filePath)}`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = res.headers['content-disposition'] || '';
+      let filename = originalFilename || 'report.xlsx';
+      const match = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (match) filename = match[1];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to download original file. Please try again.');
+    }
+  };
+
   return (
     <div>
       <div className="mb-5">
@@ -254,6 +274,16 @@ function ReviewQueueTab({ employees }) {
                         Reset
                       </button>
                     )}
+                    {r.file_path && (
+                      <button
+                        onClick={() => downloadOriginalFile(r.file_path, r.original_filename)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors ml-auto"
+                        data-testid={`download-original-${r.id}`}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download Original File
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -378,6 +408,26 @@ function HistoryTab({ employees }) {
     } catch (e) {
       console.error(e);
       alert('Failed to download report. Please try again.');
+    }
+  };
+
+  const downloadOriginalFile = async (filePath, originalFilename) => {
+    try {
+      const res = await API.get(`/files/${encodeURIComponent(filePath)}`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = res.headers['content-disposition'] || '';
+      let filename = originalFilename || 'report.xlsx';
+      const match = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (match) filename = match[1];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to download original file. Please try again.');
     }
   };
 
@@ -733,15 +783,15 @@ function HistoryTab({ employees }) {
                   {reportDetail.submitted_after_6pm && (
                     <span className="text-amber-600 font-medium">⚠ Submitted after 6 PM</span>
                   )}
-                  {reportDetail.upload_source === 'excel' && reportDetail.original_filename && (
-                    <a
-                      href={`${process.env.REACT_APP_BACKEND_URL}/api/files/${reportDetail.original_filename}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-800 hover:text-blue-600 font-medium"
+                  {reportDetail.upload_source === 'excel' && reportDetail.file_path && (
+                    <button
+                      onClick={() => downloadOriginalFile(reportDetail.file_path, reportDetail.original_filename)}
+                      className="inline-flex items-center gap-1 text-blue-800 hover:text-blue-600 font-medium"
+                      data-testid="report-modal-download-original"
                     >
-                      📎 {reportDetail.original_filename}
-                    </a>
+                      <Download className="w-3.5 h-3.5" />
+                      {reportDetail.original_filename || 'Download Original File'}
+                    </button>
                   )}
                   <StatusBadge status={reportDetail.review_status} />
                 </div>

@@ -899,8 +899,15 @@ async def upload_report_confirm(file: UploadFile = File(...), current_user: dict
 async def serve_file(file_path: str, current_user: dict = Depends(require_active)):
     try:
         data, content_type = get_object(file_path)
+        filename = "report.xlsx"
+        try:
+            report = await db.daily_reports.find_one({"file_path": file_path})
+            if report and report.get("original_filename"):
+                filename = report["original_filename"]
+        except Exception:
+            pass
         return Response(content=data, media_type=content_type,
-                        headers={"Content-Disposition": "attachment; filename=report.xlsx"})
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
     except Exception:
         raise HTTPException(status_code=404, detail="File not found")
 

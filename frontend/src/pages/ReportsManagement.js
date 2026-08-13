@@ -114,21 +114,22 @@ function ReviewQueueTab({ employees }) {
 
   const downloadOriginalFile = async (filePath, originalFilename) => {
     try {
-      const res = await API.get(`/files/${encodeURIComponent(filePath)}`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const contentDisposition = res.headers['content-disposition'] || '';
-      let filename = originalFilename || 'report.xlsx';
-      const match = contentDisposition.match(/filename="?(.+?)"?$/);
-      if (match) filename = match[1];
+      const response = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/files/${filePath}`,
+        { credentials: 'include' }
+      );
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = originalFilename || 'report.xlsx';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error(e);
-      alert('Failed to download original file. Please try again.');
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed. Please try again.');
     }
   };
 
@@ -424,21 +425,22 @@ function HistoryTab({ employees }) {
 
   const downloadOriginalFile = async (filePath, originalFilename) => {
     try {
-      const res = await API.get(`/files/${encodeURIComponent(filePath)}`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const contentDisposition = res.headers['content-disposition'] || '';
-      let filename = originalFilename || 'report.xlsx';
-      const match = contentDisposition.match(/filename="?(.+?)"?$/);
-      if (match) filename = match[1];
+      const response = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/files/${filePath}`,
+        { credentials: 'include' }
+      );
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = originalFilename || 'report.xlsx';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error(e);
-      alert('Failed to download original file. Please try again.');
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed. Please try again.');
     }
   };
 

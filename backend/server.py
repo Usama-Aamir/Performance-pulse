@@ -2785,6 +2785,76 @@ async def mark_channel_read(
     )
     return {"message": "Channel marked as read"}
 
+@api_router.post("/dms")
+async def create_or_get_dm(request: Request, current_user: dict = Depends(require_active)):
+    body = await request.json()
+    target_user_id = body.get("user_id", "").strip()
+    if not target_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    if target_user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot start a DM with yourself")
+
+    try:
+        target = await db.profiles.find_one({"_id": ObjectId(target_user_id)}, {"password_hash": 0})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("status") != "active":
+        raise HTTPException(status_code=400, detail="User is not active")
+
+    dm_between = sorted([current_user["id"], target_user_id])
+
+    existing = await db.channels.find_one({"type": "dm", "dm_between": dm_between})
+    if existing:
+        ch_dict = doc_to_dict(existing)
+        ch_dict["other_user"] = {
+            "id": str(target["_id"]),
+            "full_name": target.get("full_name", ""),
+            "role": target.get("role", ""),
+            "status": target.get("status", "")
+        }
+        return ch_dict
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    dm_doc = {
+        "type": "dm",
+        "members": [current_user["id"], target_user_id],
+        "dm_between": dm_between,
+        "created_by": current_user["id"],
+        "created_at": now_iso
+    }
+    result = await db.channels.insert_one(dm_doc)
+    dm_doc["id"] = str(result.inserted_id)
+    dm_doc.pop("_id", None)
+    dm_doc["other_user"] = {
+        "id": str(target["_id"]),
+        "full_name": target.get("full_name", ""),
+        "role": target.get("role", ""),
+        "status": target.get("status", "")
+    }
+    return dm_doc
+
+@api_router.get("/dms")
+async def list_dms(current_user: dict = Depends(require_active)):
+    user_id = current_user["id"]
+    dms = await db.channels.find({"type": "dm", "members": user_id}).sort("created_at", -1).to_list(100)
+    result = []
+    for dm in dms:
+        dm_dict = doc_to_dict(dm)
+        other_id = next((m for m in dm_dict.get("members", []) if m != user_id), None)
+        if other_id:
+            other = await db.profiles.find_one({"_id": ObjectId(other_id)}, {"password_hash": 0})
+            if other:
+                dm_dict["other_user"] = {
+                    "id": str(other["_id"]),
+                    "full_name": other.get("full_name", ""),
+                    "role": other.get("role", ""),
+                    "status": other.get("status", "")
+                }
+        result.append(dm_dict)
+    return result
+
 @api_router.get("/")
 async def root():
     return {"message": "Performance Pulse API", "status": "ok"}

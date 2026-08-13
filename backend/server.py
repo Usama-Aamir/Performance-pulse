@@ -1544,6 +1544,8 @@ async def attendance_clock_in(current_user: dict = Depends(require_active)):
         raise HTTPException(status_code=400, detail="Attendance is not required on non-working days")
 
     now = get_myt_now()
+    if now.hour >= 18:
+        raise HTTPException(status_code=400, detail="Clock-in is only allowed before 6:00 PM MYT")
 
     existing = await db.attendance.find_one({
         "employee_id": current_user["id"],
@@ -1551,8 +1553,8 @@ async def attendance_clock_in(current_user: dict = Depends(require_active)):
     })
     if existing:
         if existing.get("status") == "completed":
-            raise HTTPException(status_code=400, detail="Already completed attendance for today. Cannot clock in again.")
-        raise HTTPException(status_code=400, detail="Already clocked in today")
+            raise HTTPException(status_code=409, detail="Already completed attendance for today. Cannot clock in again.")
+        raise HTTPException(status_code=409, detail="Already clocked in today")
 
     att_doc = {
         "employee_id": current_user["id"],

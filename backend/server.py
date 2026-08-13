@@ -2589,6 +2589,39 @@ async def create_channel(request: Request, current_user: dict = Depends(require_
     channel_doc.pop("_id", None)
     return channel_doc
 
+@api_router.get("/channels/unread-counts")
+async def get_unread_counts(current_user: dict = Depends(require_active)):
+    user_id = current_user["id"]
+    query = {
+        "$or": [
+            {"type": "public"},
+            {"type": {"$in": ["private", "dm"]}, "members": user_id}
+        ]
+    }
+    channels = await db.channels.find(query).to_list(100)
+    result = {}
+    for ch in channels:
+        ch_id = str(ch["_id"])
+        read_record = await db.message_reads.find_one({
+            "user_id": user_id,
+            "channel_id": ch["_id"]
+        })
+        if read_record and read_record.get("last_read_at"):
+            unread_count = await db.messages.count_documents({
+                "channel_id": ch["_id"],
+                "deleted": False,
+                "created_at": {"$gt": read_record["last_read_at"]},
+                "sender_id": {"$ne": user_id}
+            })
+        else:
+            unread_count = await db.messages.count_documents({
+                "channel_id": ch["_id"],
+                "deleted": False,
+                "sender_id": {"$ne": user_id}
+            })
+        result[ch_id] = unread_count
+    return result
+
 @api_router.get("/channels/{channel_id}/messages")
 async def get_channel_messages(
     channel_id: str,
@@ -2751,39 +2784,6 @@ async def mark_channel_read(
         upsert=True
     )
     return {"message": "Channel marked as read"}
-
-@api_router.get("/channels/unread-counts")
-async def get_unread_counts(current_user: dict = Depends(require_active)):
-    user_id = current_user["id"]
-    query = {
-        "$or": [
-            {"type": "public"},
-            {"type": {"$in": ["private", "dm"]}, "members": user_id}
-        ]
-    }
-    channels = await db.channels.find(query).to_list(100)
-    result = {}
-    for ch in channels:
-        ch_id = str(ch["_id"])
-        read_record = await db.message_reads.find_one({
-            "user_id": user_id,
-            "channel_id": ch["_id"]
-        })
-        if read_record and read_record.get("last_read_at"):
-            unread_count = await db.messages.count_documents({
-                "channel_id": ch["_id"],
-                "deleted": False,
-                "created_at": {"$gt": read_record["last_read_at"]},
-                "sender_id": {"$ne": user_id}
-            })
-        else:
-            unread_count = await db.messages.count_documents({
-                "channel_id": ch["_id"],
-                "deleted": False,
-                "sender_id": {"$ne": user_id}
-            })
-        result[ch_id] = unread_count
-    return result
 
 @api_router.get("/")
 async def root():

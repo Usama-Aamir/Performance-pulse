@@ -507,6 +507,15 @@ async def startup():
     await db.messages.create_index([("channel_id", 1), ("deleted", 1)])
     await db.message_reads.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
 
+    # One-time migration: remove dm_between from non-DM channels (fixes bad seed data)
+    try:
+        await db.channels.update_many(
+            {"type": {"$in": ["public", "private"]}, "dm_between": None},
+            {"$unset": {"dm_between": ""}}
+        )
+    except Exception as e:
+        logger.error(f"Channel migration (unset dm_between) failed: {e}")
+
     # Seed default channels (idempotent, non-fatal on error)
     now_iso = datetime.now(timezone.utc).isoformat()
     try:
@@ -517,7 +526,6 @@ async def startup():
                     "name": "General",
                     "type": "public",
                     "members": [],
-                    "dm_between": None,
                     "created_by": "system",
                     "created_at": now_iso
                 })
@@ -540,7 +548,6 @@ async def startup():
                     "name": "Management",
                     "type": "private",
                     "members": admin_ids,
-                    "dm_between": None,
                     "created_by": "system",
                     "created_at": now_iso
                 })

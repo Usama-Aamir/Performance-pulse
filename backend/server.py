@@ -499,6 +499,13 @@ async def startup():
     await db.leave_requests.create_index([("employee_id", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("status", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("date_from", 1), ("date_to", 1)])
+    await db.channels.create_index("name", unique=True, sparse=True)
+    await db.channels.create_index("members")
+    await db.channels.create_index("dm_between", unique=True, sparse=True)
+    await db.messages.create_index([("channel_id", 1), ("created_at", 1)])
+    await db.messages.create_index("sender_id")
+    await db.messages.create_index([("channel_id", 1), ("deleted", 1)])
+    await db.message_reads.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
     logger.info("Performance Pulse backend started.")
 
 @app.on_event("shutdown")

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, History, FileSearch, Calendar, TrendingUp
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, TrendingUp
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -16,8 +16,6 @@ const Sidebar = () => {
     { to: '/admin/employees', icon: Users, label: 'Employees' },
     { to: '/admin/reports', icon: FileText, label: 'Reports' },
     { to: '/attendance', icon: Clock, label: 'Attendance' },
-    { to: '/attendance/history', icon: History, label: 'Attendance History' },
-    { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
@@ -26,8 +24,6 @@ const Sidebar = () => {
   const bossLinks = [
     { to: '/boss', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/attendance', icon: Clock, label: 'Attendance' },
-    { to: '/attendance/history', icon: History, label: 'Attendance History' },
-    { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
     { to: '/my-profile', icon: User, label: 'My Profile' },

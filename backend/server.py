@@ -1095,41 +1095,6 @@ async def download_report_excel(report_id: str, current_user: dict = Depends(req
         headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
     )
 
-@api_router.get("/reports/uploads")
-async def get_uploaded_reports(
-    employee_id: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    current_user: dict = Depends(require_admin)
-):
-    """List uploaded Excel reports with metadata (for boss/admin)."""
-    query = {"upload_source": "excel"}
-    if employee_id:
-        query["employee_id"] = employee_id
-    if date_from or date_to:
-        date_q = {}
-        if date_from:
-            date_q["$gte"] = date_from
-        if date_to:
-            date_q["$lte"] = date_to
-        query["report_date"] = date_q
-    
-    reports = await db.daily_reports.find(query).sort("report_date", -1).to_list(500)
-    
-    results = []
-    for r in reports:
-        results.append({
-            "id": str(r["_id"]),
-            "employee_id": r.get("employee_id"),
-            "employee_name": r.get("employee_name"),
-            "report_date": r.get("report_date"),
-            "original_filename": r.get("original_filename"),
-            "file_path": r.get("file_path"),
-            "created_at": r.get("created_at")
-        })
-    
-    return results
-
 @api_router.get("/reports/history")
 async def get_reports_history(
     start_date: str,
@@ -1649,13 +1614,6 @@ async def get_attendance_today(current_user: dict = Depends(require_active)):
         "is_working_day": is_working_day(today_date)
     }
 
-@api_router.get("/attendance/my")
-async def get_my_attendance(current_user: dict = Depends(require_active)):
-    records = await db.attendance.find(
-        {"employee_id": current_user["id"]}
-    ).sort("date", -1).to_list(200)
-    return [doc_to_dict(r) for r in records]
-
 @api_router.get("/attendance/all-today")
 async def get_all_attendance_today(
     date: Optional[str] = None,
@@ -1739,14 +1697,6 @@ async def get_all_attendance_today(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@api_router.get("/attendance/employee/{employee_id}")
-async def get_employee_attendance(employee_id: str, current_user: dict = Depends(require_admin)):
-    await process_auto_clock_outs()
-    records = await db.attendance.find(
-        {"employee_id": employee_id}
-    ).sort("date", -1).to_list(200)
-    return [doc_to_dict(r) for r in records]
 
 @api_router.get("/dashboard/attendance-summary")
 async def get_attendance_summary(current_user: dict = Depends(require_admin)):

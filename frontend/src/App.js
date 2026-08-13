@@ -11,8 +11,6 @@ import EmployeeManagement from '@/pages/EmployeeManagement';
 import ReportsManagement from '@/pages/ReportsManagement';
 import BossDashboard from '@/pages/BossDashboard';
 import AttendancePage from '@/pages/AttendancePage';
-import AttendanceHistoryPage from '@/pages/AttendanceHistoryPage';
-import ReportsHistoryPage from '@/pages/ReportsHistoryPage';
 import EmployeeProfile from '@/pages/EmployeeProfile';
 import MyProfile from '@/pages/MyProfile';
 import LeaveRequestsPage from '@/pages/LeaveRequestsPage';
@@ -78,8 +76,6 @@ function App() {
 
           {/* Attendance (admin + boss) */}
           <Route path="/attendance" element={<ProtectedRoute roles={['admin', 'boss']}><AttendancePage /></ProtectedRoute>} />
-          <Route path="/attendance/history" element={<ProtectedRoute roles={['admin', 'boss']}><AttendanceHistoryPage /></ProtectedRoute>} />
-          <Route path="/reports/history" element={<ProtectedRoute roles={['admin', 'boss']}><ReportsHistoryPage /></ProtectedRoute>} />
           <Route path="/leave-management" element={<ProtectedRoute roles={['admin', 'boss']}><LeaveManagementPage /></ProtectedRoute>} />
           <Route path="/monthly-attendance" element={<ProtectedRoute roles={['admin', 'boss']}><MonthlyAttendanceReportPage /></ProtectedRoute>} />
 

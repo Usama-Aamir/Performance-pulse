@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, History, FileSearch, ClipboardList, Calendar, TrendingUp
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, History, FileSearch, Calendar, TrendingUp
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -20,7 +20,6 @@ const Sidebar = () => {
     { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
-    { to: '/admin/activity-log', icon: ClipboardList, label: 'Activity Log' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 
@@ -31,7 +30,6 @@ const Sidebar = () => {
     { to: '/reports/history', icon: FileSearch, label: 'Reports History' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
-    { to: '/admin/activity-log', icon: ClipboardList, label: 'Activity Log' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 

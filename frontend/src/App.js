@@ -13,7 +13,6 @@ import BossDashboard from '@/pages/BossDashboard';
 import AttendancePage from '@/pages/AttendancePage';
 import AttendanceHistoryPage from '@/pages/AttendanceHistoryPage';
 import ReportsHistoryPage from '@/pages/ReportsHistoryPage';
-import ActivityLogPage from '@/pages/ActivityLogPage';
 import EmployeeProfile from '@/pages/EmployeeProfile';
 import MyProfile from '@/pages/MyProfile';
 import LeaveRequestsPage from '@/pages/LeaveRequestsPage';
@@ -83,7 +82,6 @@ function App() {
           <Route path="/reports/history" element={<ProtectedRoute roles={['admin', 'boss']}><ReportsHistoryPage /></ProtectedRoute>} />
           <Route path="/leave-management" element={<ProtectedRoute roles={['admin', 'boss']}><LeaveManagementPage /></ProtectedRoute>} />
           <Route path="/monthly-attendance" element={<ProtectedRoute roles={['admin', 'boss']}><MonthlyAttendanceReportPage /></ProtectedRoute>} />
-          <Route path="/admin/activity-log" element={<ProtectedRoute roles={['admin', 'boss']}><ActivityLogPage /></ProtectedRoute>} />
 
           {/* Shared: Employee Profile (admin + boss) */}
           <Route path="/employee/:id" element={<ProtectedRoute roles={['admin', 'boss']}><EmployeeProfile /></ProtectedRoute>} />

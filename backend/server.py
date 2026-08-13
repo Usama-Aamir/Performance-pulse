@@ -496,7 +496,6 @@ async def startup():
     await db.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)
     await db.attendance.create_index([("date", 1), ("employee_id", 1)])
     await db.attendance.create_index([("date", 1)])
-    await db.activity_logs.create_index([("created_at", -1)])
     await db.leave_requests.create_index([("employee_id", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("status", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("date_from", 1), ("date_to", 1)])
@@ -531,21 +530,6 @@ async def record_failed_attempt(email: str):
 
 async def clear_failed_attempts(email: str):
     await db.login_attempts.delete_many({"email": email})
-
-async def log_activity(user_id, user_name, user_role, action, target_type=None, target_id=None, details=None):
-    try:
-        await db.activity_logs.insert_one({
-            "user_id": str(user_id),
-            "user_name": user_name,
-            "user_role": user_role,
-            "action": action,
-            "target_type": target_type,
-            "target_id": str(target_id) if target_id else None,
-            "details": details,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-    except Exception as e:
-        print(f"Activity log error (non-critical): {e}")
 
 # ─────────────────────────────────────────────
 # AUTH ROUTES
@@ -661,28 +645,12 @@ async def login(request: Request, response: Response):
     refresh_token = create_refresh_token(user_id)
     set_auth_cookies(response, access_token, refresh_token)
 
-    await log_activity(
-        user_id=user_id,
-        user_name=user_dict.get("full_name", ""),
-        user_role=user_dict.get("role", ""),
-        action="login",
-        target_type="system",
-        details={"ip": request.client.host if request.client else None}
-    )
-
     return user_dict
 
 @api_router.post("/auth/logout")
 async def logout(response: Response, current_user: dict = Depends(get_current_user)):
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="logout",
-        target_type="system"
-    )
     return {"message": "Logged out"}
 
 @api_router.get("/auth/me")
@@ -756,16 +724,6 @@ async def update_user_status(user_id: str, request: Request, current_user: dict 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="user_status_changed",
-        target_type="user",
-        target_id=user_id,
-        details={"new_status": new_status}
-    )
-
     return {"message": f"Status updated to {new_status}"}
 
 @api_router.put("/users/{user_id}/role")
@@ -780,16 +738,6 @@ async def update_user_role(user_id: str, request: Request, current_user: dict = 
         raise HTTPException(status_code=400, detail="Invalid user ID")
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
-
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="user_updated",
-        target_type="user",
-        target_id=user_id,
-        details={"new_role": new_role}
-    )
 
     return {"message": f"Role updated to {new_role}"}
 
@@ -806,16 +754,6 @@ async def update_user_profile(user_id: str, request: Request, current_user: dict
         await db.profiles.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
-
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="profile_updated",
-        target_type="profile",
-        target_id=user_id,
-        details={"updated_fields": list(update_data.keys())}
-    )
 
     return {"message": "Profile updated"}
 
@@ -1035,15 +973,6 @@ async def submit_report(request: Request, current_user: dict = Depends(require_a
     report_doc["id"] = str(result.inserted_id)
     report_doc.pop("_id", None)
 
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="report_submitted",
-        target_type="report",
-        target_id=report_doc["id"]
-    )
-
     return report_doc
 
 @api_router.get("/reports")
@@ -1159,16 +1088,6 @@ async def download_report_excel(report_id: str, current_user: dict = Depends(req
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="report_downloaded",
-        target_type="report",
-        target_id=report_id,
-        details={"filename": filename}
-    )
 
     return Response(
         content=buffer.getvalue(),
@@ -1367,84 +1286,6 @@ async def get_reports_history_summary(
     except Exception as e:
         logger.error(f"Error in get_reports_history_summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/activity/log")
-async def log_activity_endpoint(request: Request, current_user: dict = Depends(require_active)):
-    body = await request.json()
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action=body.get("action"),
-        target_type=body.get("target_type"),
-        target_id=body.get("target_id"),
-        details=body.get("details")
-    )
-    return {"status": "logged"}
-
-@api_router.get("/activity/logs")
-async def get_activity_logs(
-    limit: int = 50,
-    offset: int = 0,
-    user_id: Optional[str] = None,
-    action: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    current_user: dict = Depends(require_admin)
-):
-    query = {}
-    if user_id:
-        query["user_id"] = user_id
-    if action:
-        query["action"] = action
-    if start_date or end_date:
-        date_q = {}
-        if start_date:
-            date_q["$gte"] = start_date
-        if end_date:
-            date_q["$lte"] = end_date
-        query["created_at"] = date_q
-
-    logs = await db.activity_logs.find(query).sort("created_at", -1).skip(offset).limit(limit).to_list(limit)
-    return [doc_to_dict(l) for l in logs]
-
-@api_router.get("/activity/logs/summary")
-async def get_activity_logs_summary(
-    start_date: str,
-    end_date: str,
-    current_user: dict = Depends(require_admin)
-):
-    query = {"created_at": {"$gte": start_date, "$lte": end_date}}
-    logs = await db.activity_logs.find(query).to_list(10000)
-
-    total_actions = len(logs)
-    unique_users = len(set(l.get("user_id") for l in logs))
-
-    action_breakdown = {}
-    user_action_counts = {}
-    for l in logs:
-        act = l.get("action", "unknown")
-        action_breakdown[act] = action_breakdown.get(act, 0) + 1
-        uid = l.get("user_id")
-        if uid:
-            user_action_counts[uid] = user_action_counts.get(uid, 0) + 1
-
-    most_active_user = None
-    if user_action_counts:
-        top_uid = max(user_action_counts, key=user_action_counts.get)
-        top_log = next((l for l in logs if l.get("user_id") == top_uid), None)
-        if top_log:
-            most_active_user = {
-                "name": top_log.get("user_name", "Unknown"),
-                "action_count": user_action_counts[top_uid]
-            }
-
-    return {
-        "total_actions": total_actions,
-        "unique_users": unique_users,
-        "action_breakdown": action_breakdown,
-        "most_active_user": most_active_user
-    }
 
 @api_router.put("/reports/{report_id}/review")
 async def review_report(report_id: str, request: Request, current_user: dict = Depends(require_admin)):
@@ -1757,15 +1598,6 @@ async def attendance_clock_in(current_user: dict = Depends(require_active)):
     result = await db.attendance.insert_one(att_doc)
     att_doc["_id"] = result.inserted_id
 
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="clock_in",
-        target_type="attendance",
-        target_id=str(att_doc["_id"])
-    )
-
     return doc_to_dict(att_doc)
 
 @api_router.post("/attendance/clock-out")
@@ -1797,15 +1629,6 @@ async def attendance_clock_out(current_user: dict = Depends(require_active)):
             "clock_out_reason": "manual",
             "status": "completed"
         }}
-    )
-
-    await log_activity(
-        user_id=current_user["id"],
-        user_name=current_user.get("full_name", ""),
-        user_role=current_user.get("role", ""),
-        action="clock_out",
-        target_type="attendance",
-        target_id=str(record["_id"])
     )
 
     updated = await db.attendance.find_one({"_id": record["_id"]})

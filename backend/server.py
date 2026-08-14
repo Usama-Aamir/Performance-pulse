@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -2916,3 +2916,165 @@ async def root():
     return {"message": "Performance Pulse API", "status": "ok"}
 
 app.include_router(api_router)
+
+# ─────────────────────────────────────────────
+# WEBSOCKET CHAT
+# ─────────────────────────────────────────────
+# Render free tier: the server sleeps after 15 min of inactivity.
+# When the server wakes, WS connections are broken. The frontend must
+# auto-reconnect with exponential backoff and re-fetch unread counts
+# via REST on every successful reconnect, since messages may have
+# arrived while the WS was disconnected.
+
+class ConnectionManager:
+    def __init__(self):
+        self.rooms: dict[str, set] = {}
+
+    async def connect(self, channel_id: str, websocket: WebSocket):
+        if channel_id not in self.rooms:
+            self.rooms[channel_id] = set()
+        self.rooms[channel_id].add(websocket)
+
+    def disconnect(self, channel_id: str, websocket: WebSocket):
+        if channel_id in self.rooms:
+            self.rooms[channel_id].discard(websocket)
+            if not self.rooms[channel_id]:
+                del self.rooms[channel_id]
+
+    async def broadcast(self, channel_id: str, message: dict, exclude: WebSocket = None):
+        if channel_id not in self.rooms:
+            return
+        dead = []
+        for ws in self.rooms[channel_id]:
+            if ws is exclude:
+                continue
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.rooms[channel_id].discard(ws)
+        if channel_id in self.rooms and not self.rooms[channel_id]:
+            del self.rooms[channel_id]
+
+ws_manager = ConnectionManager()
+
+async def ws_authenticate(websocket: WebSocket) -> dict:
+    token = websocket.cookies.get("access_token")
+    if not token:
+        await websocket.close(code=4001)
+        return None
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            await websocket.close(code=4001)
+            return None
+        user = await db.profiles.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            await websocket.close(code=4001)
+            return None
+        result = doc_to_dict(user)
+        result.pop("password_hash", None)
+        if result.get("status") != "active":
+            await websocket.close(code=4001)
+            return None
+        return result
+    except Exception:
+        await websocket.close(code=4001)
+        return None
+
+async def get_user_channel_ids(user_id: str) -> list:
+    query = {
+        "$or": [
+            {"type": "public"},
+            {"type": {"$in": ["private", "dm"]}, "members": user_id}
+        ]
+    }
+    channels = await db.channels.find(query).to_list(100)
+    return [str(ch["_id"]) for ch in channels]
+
+@app.websocket("/ws/chat")
+async def ws_chat(websocket: WebSocket):
+    await websocket.accept()
+    user = await ws_authenticate(websocket)
+    if user is None:
+        return
+
+    user_id = user["id"]
+    channel_ids = await get_user_channel_ids(user_id)
+
+    for ch_id in channel_ids:
+        await ws_manager.connect(ch_id, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+
+            if msg_type == "message":
+                channel_id = data.get("channel_id", "")
+                content = data.get("content", "").strip()
+                if not content or len(content) > 2000:
+                    continue
+                if channel_id not in channel_ids:
+                    continue
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                msg_doc = {
+                    "channel_id": ObjectId(channel_id),
+                    "sender_id": user_id,
+                    "sender_name": user.get("full_name", ""),
+                    "sender_role": user.get("role", ""),
+                    "content": content,
+                    "created_at": now_iso,
+                    "edited_at": None,
+                    "deleted": False,
+                    "deleted_at": None,
+                    "deleted_by": None
+                }
+                result = await db.messages.insert_one(msg_doc)
+                msg_doc["id"] = str(result.inserted_id)
+                msg_doc["channel_id"] = str(msg_doc["channel_id"])
+                msg_doc.pop("_id", None)
+
+                await ws_manager.broadcast(channel_id, {
+                    "type": "new_message",
+                    "message": msg_doc
+                })
+
+            elif msg_type == "typing":
+                channel_id = data.get("channel_id", "")
+                if channel_id not in channel_ids:
+                    continue
+                await ws_manager.broadcast(channel_id, {
+                    "type": "typing",
+                    "channel_id": channel_id,
+                    "user_id": user_id,
+                    "user_name": user.get("full_name", "")
+                }, exclude=websocket)
+
+            elif msg_type == "read":
+                channel_id = data.get("channel_id", "")
+                if channel_id not in channel_ids:
+                    continue
+                last_msg = await db.messages.find(
+                    {"channel_id": ObjectId(channel_id), "deleted": False}
+                ).sort("created_at", -1).limit(1).to_list(1)
+                last_msg_id = last_msg[0]["_id"] if last_msg else None
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.message_reads.update_one(
+                    {"user_id": user_id, "channel_id": ObjectId(channel_id)},
+                    {"$set": {
+                        "last_read_message_id": last_msg_id,
+                        "last_read_at": now_iso
+                    }},
+                    upsert=True
+                )
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        for ch_id in channel_ids:
+            ws_manager.disconnect(ch_id, websocket)

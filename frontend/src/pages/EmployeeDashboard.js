@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, API } from '@/contexts/AuthContext';
+import Sidebar from '@/components/Sidebar';
 import StatusBadge from '@/components/StatusBadge';
 import {
-  Activity, LogOut, FileText, Upload, Download, CheckCircle,
-  AlertTriangle, Eye, RotateCcw, ChevronDown, ChevronUp, User, Clock, Calendar
+  FileText, Upload, Download, CheckCircle,
+  AlertTriangle, Eye, RotateCcw, ChevronDown, ChevronUp, Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -49,7 +50,7 @@ const PreviewTable = ({ rows }) => (
 );
 
 export default function EmployeeDashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const fileRef = useRef(null);
   const confirmFileRef = useRef(null);
@@ -201,8 +202,6 @@ export default function EmployeeDashboard() {
     window.open(`${process.env.REACT_APP_BACKEND_URL}/api/reports/template`, '_blank');
   };
 
-  const handleLogout = async () => { await logout(); navigate('/login'); };
-
   const getGreeting = () => {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';
@@ -211,39 +210,9 @@ export default function EmployeeDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top Nav */}
-      <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-blue-800" />
-          <span className="font-bold text-slate-900 text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>Performance Pulse</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <button data-testid="nav-my-profile" onClick={() => navigate('/my-profile')}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
-            <User className="w-4 h-4" /><span className="hidden sm:inline">My Profile</span>
-          </button>
-          <button data-testid="nav-my-reports" onClick={() => navigate('/my-reports')}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
-            <FileText className="w-4 h-4" /><span className="hidden sm:inline">My Reports</span>
-          </button>
-          <button data-testid="nav-leave-requests" onClick={() => navigate('/leave-requests')}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
-            <Calendar className="w-4 h-4" /><span className="hidden sm:inline">Leave Requests</span>
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center">
-              <span className="text-blue-800 text-xs font-semibold">{(user?.full_name || 'U')[0].toUpperCase()}</span>
-            </div>
-            <span className="text-sm text-slate-700 hidden sm:block truncate max-w-[120px]">{user?.full_name}</span>
-          </div>
-          <button data-testid="nav-logout" onClick={handleLogout} className="text-slate-500 hover:text-slate-700">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar />
+      <main className="flex-1 md:ml-60 p-4 md:p-6 pt-16 md:pt-6 space-y-6">
         {/* Greeting */}
 
         {/* Attendance Card */}

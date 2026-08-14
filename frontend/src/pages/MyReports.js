@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, API } from '@/contexts/AuthContext';
+import Sidebar from '@/components/Sidebar';
 import StatusBadge from '@/components/StatusBadge';
-import { Activity, LogOut, FileText, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
+import { FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { format } from 'date-fns';
 
 const formatDate = (d) => {
@@ -10,7 +11,7 @@ const formatDate = (d) => {
 };
 
 export default function MyReports() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,32 +24,10 @@ export default function MyReports() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleLogout = async () => { await logout(); navigate('/login'); };
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-800" />
-            <span className="font-bold text-slate-900 text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>Performance Pulse</span>
-          </button>
-          <span className="text-slate-300">/</span>
-          <span className="text-sm text-slate-600 font-medium">My Reports</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/dashboard')} className="text-sm text-slate-600 hover:text-slate-900 transition-colors">Dashboard</button>
-          <button onClick={() => navigate('/my-profile')} className="text-sm text-slate-600 hover:text-slate-900 transition-colors">My Profile</button>
-          <button onClick={() => navigate('/leave-requests')} className="text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1">
-            <Calendar className="w-4 h-4" /><span className="hidden sm:inline">Leave Requests</span>
-          </button>
-          <button data-testid="nav-logout" onClick={handleLogout} className="text-slate-500 hover:text-slate-700">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto p-4 md:p-6">
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar />
+      <main className="flex-1 md:ml-60 p-4 md:p-6 pt-16 md:pt-6">
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>My Reports</h1>

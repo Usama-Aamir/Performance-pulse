@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, API } from '../contexts/AuthContext';
+import Sidebar from '@/components/Sidebar';
 import { format } from 'date-fns';
 import { Calendar, Plus, FileText, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 
@@ -72,8 +73,10 @@ const LeaveRequestsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar />
+      <main className="flex-1 md:ml-60 p-4 md:p-6 pt-16 md:pt-6">
+        <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Leave Requests</h1>
@@ -195,7 +198,8 @@ const LeaveRequestsPage = () => {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </main>
     </div>
   );
 };

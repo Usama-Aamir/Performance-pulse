@@ -33,6 +33,8 @@ const Sidebar = () => {
 
   const employeeLinks = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/my-reports', icon: FileText, label: 'My Reports' },
+    { to: '/leave-requests', icon: Calendar, label: 'Leave Requests' },
     { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];

@@ -2688,8 +2688,9 @@ async def send_channel_message(
 
     body = await request.json()
     content = body.get("content", "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="Message content is required")
+    attachment = body.get("attachment")
+    if not content and not attachment:
+        raise HTTPException(status_code=400, detail="Message content or attachment is required")
     if len(content) > 2000:
         raise HTTPException(status_code=400, detail="Message must be 2000 characters or less")
 
@@ -2700,6 +2701,8 @@ async def send_channel_message(
         "sender_name": current_user.get("full_name", ""),
         "sender_role": current_user.get("role", ""),
         "content": content,
+        "attachment": attachment,
+        "reactions": [],
         "created_at": now_iso,
         "edited_at": None,
         "deleted": False,
@@ -3030,7 +3033,10 @@ async def ws_chat(websocket: WebSocket):
             if msg_type == "message":
                 channel_id = data.get("channel_id", "")
                 content = data.get("content", "").strip()
-                if not content or len(content) > 2000:
+                attachment = data.get("attachment")
+                if not content and not attachment:
+                    continue
+                if len(content) > 2000:
                     continue
                 if channel_id not in channel_ids:
                     continue
@@ -3042,6 +3048,8 @@ async def ws_chat(websocket: WebSocket):
                     "sender_name": user.get("full_name", ""),
                     "sender_role": user.get("role", ""),
                     "content": content,
+                    "attachment": attachment,
+                    "reactions": [],
                     "created_at": now_iso,
                     "edited_at": None,
                     "deleted": False,

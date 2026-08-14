@@ -17,6 +17,7 @@ import MyProfile from '@/pages/MyProfile';
 import LeaveRequestsPage from '@/pages/LeaveRequestsPage';
 import LeaveManagementPage from '@/pages/LeaveManagementPage';
 import MonthlyAttendanceReportPage from '@/pages/MonthlyAttendanceReportPage';
+import MessagesPage from '@/pages/MessagesPage';
 import '@/App.css';
 
 const Spinner = () => (
@@ -86,6 +87,9 @@ function App() {
 
             {/* My Profile (all active roles) */}
             <Route path="/my-profile" element={<ProtectedRoute roles={['employee', 'admin', 'boss']}><MyProfile /></ProtectedRoute>} />
+
+            {/* Messages (all active roles) */}
+            <Route path="/messages" element={<ProtectedRoute roles={['employee', 'admin', 'boss']}><MessagesPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="/" element={<RoleRedirect />} />

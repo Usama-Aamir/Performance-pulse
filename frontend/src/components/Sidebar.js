@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, TrendingUp
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, TrendingUp, MessageSquare
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -18,6 +18,7 @@ const Sidebar = () => {
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
+    { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 
@@ -26,10 +27,17 @@ const Sidebar = () => {
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
+    { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];
 
-  const links = user?.role === 'boss' ? bossLinks : adminLinks;
+  const employeeLinks = [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/messages', icon: MessageSquare, label: 'Messages' },
+    { to: '/my-profile', icon: User, label: 'My Profile' },
+  ];
+
+  const links = user?.role === 'boss' ? bossLinks : user?.role === 'employee' ? employeeLinks : adminLinks;
 
   const handleLogout = async () => {
     await logout();
@@ -51,7 +59,7 @@ const Sidebar = () => {
       </div>
       <div className="px-3 py-2 border-b border-slate-100">
         <span className="text-xs font-semibold tracking-wider uppercase text-slate-400">
-          {user?.role === 'boss' ? 'Boss View' : 'Admin View'}
+          {user?.role === 'boss' ? 'Boss View' : user?.role === 'employee' ? 'Employee View' : 'Admin View'}
         </span>
       </div>
       <nav className="flex-1 p-3 space-y-0.5">

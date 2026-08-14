@@ -59,7 +59,7 @@ const ChannelList = ({ selectedChannelId, onSelectChannel }) => {
   const isAdmin = user?.role === 'admin' || user?.role === 'boss';
 
   return (
-    <div className="w-64 bg-white border-r border-slate-200 flex flex-col h-full">
+    <div className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col h-full">
       <div className="p-3 border-b border-slate-200">
         <h2
           className="text-base font-semibold text-slate-900"

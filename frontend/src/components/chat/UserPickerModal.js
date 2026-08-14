@@ -11,7 +11,7 @@ const UserPickerModal = ({ onClose, onSelect }) => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await API.get('/users?status=active');
+        const res = await API.get('/users/dm-list');
         setUsers((res.data || []).filter((u) => u.id !== user?.id));
       } catch (e) {
         // silent fail

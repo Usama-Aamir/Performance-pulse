@@ -13,7 +13,7 @@ const MessagesPage = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar />
-      <div className="flex flex-1 md:ml-60 h-screen">
+      <div className="flex flex-1 md:ml-60 h-screen overflow-hidden">
         <ChannelList
           selectedChannelId={selectedChannel?.id}
           onSelectChannel={handleSelectChannel}

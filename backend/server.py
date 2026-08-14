@@ -756,6 +756,22 @@ async def list_users(
 async def get_departments(current_user: dict = Depends(get_current_user)):
     return {"departments": DEPARTMENTS}
 
+@api_router.get("/users/dm-list")
+async def get_dm_list(current_user: dict = Depends(require_active)):
+    users = await db.profiles.find(
+        {"status": "active", "_id": {"$ne": ObjectId(current_user["id"])}},
+        {"password_hash": 0}
+    ).sort("full_name", 1).to_list(1000)
+    return [
+        {
+            "id": str(u["_id"]),
+            "full_name": u.get("full_name", ""),
+            "role": u.get("role", ""),
+            "department": u.get("department", ""),
+        }
+        for u in users
+    ]
+
 @api_router.get("/users/{user_id}")
 async def get_user(user_id: str, current_user: dict = Depends(require_active)):
     if current_user["id"] != user_id and current_user["role"] not in ["admin", "boss"]:

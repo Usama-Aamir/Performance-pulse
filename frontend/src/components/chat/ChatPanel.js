@@ -96,7 +96,7 @@ const ChatPanel = ({ channel }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 h-full">
+    <div className="flex-1 min-w-0 flex flex-col bg-slate-50 h-full">
       {/* Header */}
       <div className="px-4 py-3 bg-white border-b border-slate-200">
         <h3

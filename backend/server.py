@@ -2855,6 +2855,62 @@ async def list_dms(current_user: dict = Depends(require_active)):
         result.append(dm_dict)
     return result
 
+@api_router.post("/channels/{channel_id}/members")
+async def add_channel_member(
+    channel_id: str,
+    request: Request,
+    current_user: dict = Depends(require_admin)
+):
+    body = await request.json()
+    target_user_id = body.get("user_id", "").strip()
+    if not target_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if ch["type"] != "private":
+        raise HTTPException(status_code=400, detail="Member management only applies to private channels")
+
+    try:
+        target = await db.profiles.find_one({"_id": ObjectId(target_user_id)}, {"password_hash": 0})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("status") != "active":
+        raise HTTPException(status_code=400, detail="User is not active")
+
+    await db.channels.update_one(
+        {"_id": ObjectId(channel_id)},
+        {"$addToSet": {"members": target_user_id}}
+    )
+    return {"message": "Member added to channel"}
+
+@api_router.delete("/channels/{channel_id}/members/{user_id}")
+async def remove_channel_member(
+    channel_id: str,
+    user_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if ch["type"] != "private":
+        raise HTTPException(status_code=400, detail="Member management only applies to private channels")
+
+    await db.channels.update_one(
+        {"_id": ObjectId(channel_id)},
+        {"$pull": {"members": user_id}}
+    )
+    return {"message": "Member removed from channel"}
+
 @api_router.get("/")
 async def root():
     return {"message": "Performance Pulse API", "status": "ok"}

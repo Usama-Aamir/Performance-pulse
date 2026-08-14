@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -52,12 +52,12 @@ def init_storage():
     _storage_key = resp.json()["storage_key"]
     return _storage_key
 
-def put_object(path: str, data: bytes, content_type: str) -> dict:
+def put_object(path: str, data: bytes, content_type: str, timeout: int = 120) -> dict:
     key = init_storage()
     resp = http_requests.put(
         f"{STORAGE_URL}/objects/{path}",
         headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120
+        data=data, timeout=timeout
     )
     resp.raise_for_status()
     return resp.json()
@@ -985,15 +985,11 @@ async def upload_report_confirm(file: UploadFile = File(...), current_user: dict
 async def serve_file(file_path: str, current_user: dict = Depends(require_active)):
     try:
         data, content_type = get_object(file_path)
-        filename = "report.xlsx"
-        try:
-            report = await db.daily_reports.find_one({"file_path": file_path})
-            if report and report.get("original_filename"):
-                filename = report["original_filename"]
-        except Exception:
-            pass
+        basename = file_path.split("/")[-1]
+        filename = basename.split("_", 1)[-1] if "_" in basename else basename
+        disposition = "inline" if content_type.startswith("image/") else "attachment"
         return Response(content=data, media_type=content_type,
-                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'})
     except Exception:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -2771,6 +2767,41 @@ async def delete_message(
         {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": current_user["id"], "content": None}}
     )
     return {"message": "Message deleted"}
+
+@api_router.post("/chat/upload")
+async def upload_chat_file(
+    request: Request,
+    file: UploadFile = File(...),
+    channel_id: str = Form(...),
+    current_user: dict = Depends(require_active)
+):
+    try:
+        ch = await db.channels.find_one({"_id": ObjectId(channel_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid channel ID")
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if ch["type"] != "public" and current_user["id"] not in ch.get("members", []):
+        raise HTTPException(status_code=403, detail="Access denied to this channel")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 52428800:
+        raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
+
+    storage_path = f"{APP_STORAGE_PREFIX}/chat/{channel_id}/{uuid.uuid4().hex}_{file.filename}"
+    try:
+        put_object(storage_path, file_bytes, file.content_type or "application/octet-stream", timeout=300)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to upload file")
+
+    return {
+        "url": f"{request.base_url}api/files/{storage_path}",
+        "filename": file.filename,
+        "file_size": len(file_bytes),
+        "mime_type": file.content_type or "application/octet-stream",
+        "storage_path": storage_path,
+        "is_gif": False
+    }
 
 @api_router.post("/channels/{channel_id}/read")
 async def mark_channel_read(

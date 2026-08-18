@@ -99,6 +99,17 @@ export const ChatProvider = ({ children }) => {
             ...prev,
             [channel_id]: count,
           }));
+        } else if (type === 'reaction_update') {
+          const { message_id, channel_id, reactions } = data;
+          setMessages(prev => {
+            const arr = prev[channel_id] || [];
+            return {
+              ...prev,
+              [channel_id]: arr.map(m =>
+                m.id === message_id ? { ...m, reactions } : m
+              ),
+            };
+          });
         }
       } catch (e) {
         // ignore malformed messages
@@ -173,6 +184,19 @@ export const ChatProvider = ({ children }) => {
     return null;
   }, []);
 
+  const toggleReaction = useCallback(async (messageId, channelId, emoji) => {
+    try {
+      await fetch(`${API_BASE}/messages/${messageId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ emoji }),
+      });
+    } catch (e) {
+      // silent fail — WS reaction_update will not fire, UI stays unchanged
+    }
+  }, []);
+
   const sendTyping = useCallback((channelId) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'typing', channel_id: channelId }));
@@ -237,6 +261,7 @@ export const ChatProvider = ({ children }) => {
         activeChannelId,
         sendMessage,
         uploadAttachment,
+        toggleReaction,
         sendTyping,
         markAsRead,
         loadMessages,

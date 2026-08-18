@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Edit2, Trash2, File as FileIcon, Download } from 'lucide-react';
+import { useChat } from '@/contexts/ChatContext';
+import { Edit2, Trash2, File as FileIcon, Download, Smile } from 'lucide-react';
+
+const EmojiReactionPicker = lazy(() => import('./EmojiReactionPicker'));
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂'];
 
 const formatTime = (iso) => {
   try {
@@ -61,10 +66,18 @@ const AttachmentRenderer = ({ attachment }) => {
 
 const MessageBubble = ({ message, onEdit, onDelete }) => {
   const { user } = useAuth();
+  const { toggleReaction } = useChat();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content || '');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const isOwn = message.sender_id === user?.id;
   const canDelete = isOwn || user?.role === 'admin' || user?.role === 'boss';
+  const reactions = message.reactions || [];
+
+  const handleToggleReaction = (emoji) => {
+    toggleReaction(message.id, message.channel_id, emoji);
+    setShowEmojiPicker(false);
+  };
 
   const handleSaveEdit = () => {
     const trimmed = editContent.trim();
@@ -140,12 +153,59 @@ const MessageBubble = ({ message, onEdit, onDelete }) => {
               <p className="text-sm text-slate-700 break-words whitespace-pre-wrap">{message.content}</p>
             )}
             <AttachmentRenderer attachment={message.attachment} />
+            {reactions.filter(r => r.users?.length > 0).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {reactions.filter(r => r.users?.length > 0).map((r) => {
+                  const reacted = user?.id && r.users.includes(user.id);
+                  return (
+                    <button
+                      key={r.emoji}
+                      onClick={() => handleToggleReaction(r.emoji)}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs border transition-colors ${
+                        reacted
+                          ? 'bg-blue-100 border-blue-300 text-blue-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                      }`}
+                      data-testid={`message-reaction-pill-${message.id}-${r.emoji}`}
+                    >
+                      <span>{r.emoji}</span>
+                      <span>{r.users.length}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex items-center justify-between mt-1">
               <span className="text-xs text-slate-400">
                 {formatTime(message.created_at)}
                 {message.edited_at && <span className="ml-1 italic">(edited)</span>}
               </span>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className={`relative flex gap-1 transition-opacity ${showEmojiPicker ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleToggleReaction(emoji)}
+                    className="p-1 text-sm hover:scale-125 transition-transform"
+                    data-testid={`quick-reaction-${message.id}-${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className="p-1 text-slate-400 hover:text-slate-700"
+                  data-testid={`message-react-btn-${message.id}`}
+                >
+                  <Smile className="w-3.5 h-3.5" />
+                </button>
+                {showEmojiPicker && (
+                  <Suspense fallback={null}>
+                    <EmojiReactionPicker
+                      onSelect={handleToggleReaction}
+                      onClose={() => setShowEmojiPicker(false)}
+                    />
+                  </Suspense>
+                )}
                 {isOwn && (
                   <button
                     onClick={() => setEditing(true)}

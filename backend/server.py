@@ -2768,6 +2768,63 @@ async def delete_message(
     )
     return {"message": "Message deleted"}
 
+@api_router.post("/messages/{message_id}/reactions")
+async def toggle_reaction(
+    message_id: str,
+    request: Request,
+    current_user: dict = Depends(require_active)
+):
+    body = await request.json()
+    emoji = body.get("emoji", "").strip()
+    if not emoji:
+        raise HTTPException(status_code=400, detail="Emoji is required")
+
+    try:
+        oid = ObjectId(message_id)
+        msg = await db.messages.find_one({"_id": oid})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid message ID")
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    user_id = current_user["id"]
+
+    # Attempt toggle-off: atomically pull user_id from the matching emoji's users array
+    pull_result = await db.messages.update_one(
+        {"_id": oid, "reactions": {"$elemMatch": {"emoji": emoji, "users": user_id}}},
+        {"$pull": {"reactions.$.users": user_id}}
+    )
+    if pull_result.matched_count > 0:
+        # Clean up any reaction entries left with an empty users array
+        await db.messages.update_one(
+            {"_id": oid},
+            {"$pull": {"reactions": {"users": {"$size": 0}}}}
+        )
+    else:
+        # Toggle on: add user_id to existing emoji entry, or create a new one
+        add_result = await db.messages.update_one(
+            {"_id": oid, "reactions.emoji": emoji},
+            {"$addToSet": {"reactions.$.users": user_id}}
+        )
+        if add_result.matched_count == 0:
+            await db.messages.update_one(
+                {"_id": oid, "reactions.emoji": {"$ne": emoji}},
+                {"$push": {"reactions": {"emoji": emoji, "users": [user_id]}}}
+            )
+
+    updated = await db.messages.find_one({"_id": oid})
+    updated_reactions = updated.get("reactions", [])
+    channel_id = str(updated["channel_id"])
+
+    await ws_manager.broadcast(channel_id, {
+        "type": "reaction_update",
+        "message_id": message_id,
+        "channel_id": channel_id,
+        "reactions": updated_reactions
+    })
+
+    return {"reactions": updated_reactions}
+
 @api_router.post("/chat/upload")
 async def upload_chat_file(
     request: Request,

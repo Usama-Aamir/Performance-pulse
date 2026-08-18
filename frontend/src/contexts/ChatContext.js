@@ -148,10 +148,29 @@ export const ChatProvider = ({ children }) => {
     };
   }, [user, connect, fetchUnreadCounts]);
 
-  const sendMessage = useCallback((channelId, content) => {
+  const sendMessage = useCallback((channelId, content, attachment = null) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'message', channel_id: channelId, content }));
+      wsRef.current.send(JSON.stringify({ type: 'message', channel_id: channelId, content, attachment }));
     }
+  }, []);
+
+  const uploadAttachment = useCallback(async (file, channelId) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('channel_id', channelId);
+      const res = await fetch(`${API_BASE}/chat/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      // silent fail
+    }
+    return null;
   }, []);
 
   const sendTyping = useCallback((channelId) => {
@@ -217,6 +236,7 @@ export const ChatProvider = ({ children }) => {
         messages,
         activeChannelId,
         sendMessage,
+        uploadAttachment,
         sendTyping,
         markAsRead,
         loadMessages,

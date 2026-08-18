@@ -2,14 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import MessageBubble from './MessageBubble';
-import { Send, MessageSquare } from 'lucide-react';
+import { Send, MessageSquare, Paperclip, X, Loader2 } from 'lucide-react';
 
 const ChatPanel = ({ channel }) => {
   const { user } = useAuth();
-  const { messages, sendMessage, sendTyping, markAsRead, setActiveChannelId, loadMessages } = useChat();
+  const { messages, sendMessage, uploadAttachment, sendTyping, markAsRead, setActiveChannelId, loadMessages } = useChat();
   const [input, setInput] = useState('');
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const fileInputRef = useRef(null);
   const channelMessages = channel ? messages[channel.id] || [] : [];
 
   const channelName = channel
@@ -39,9 +42,11 @@ const ChatPanel = ({ channel }) => {
 
   const handleSend = () => {
     const content = input.trim();
-    if (!content || !channel) return;
-    sendMessage(channel.id, content);
+    if (!content && !pendingAttachment) return;
+    if (!channel) return;
+    sendMessage(channel.id, content, pendingAttachment);
     setInput('');
+    setPendingAttachment(null);
   };
 
   const handleKeyDown = (e) => {
@@ -82,6 +87,28 @@ const ChatPanel = ({ channel }) => {
         { method: 'DELETE', credentials: 'include' }
       );
     } catch (e) {}
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !channel) return;
+    setUploading(true);
+    const result = await uploadAttachment(file, channel.id);
+    setUploading(false);
+    if (result) {
+      setPendingAttachment(result);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleCancelAttachment = () => {
+    setPendingAttachment(null);
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
   };
 
   if (!channel) {
@@ -139,7 +166,53 @@ const ChatPanel = ({ channel }) => {
 
       {/* Input */}
       <div className="px-4 py-3 bg-white border-t border-slate-200">
+        {uploading && (
+          <div className="flex items-center gap-2 mb-2 text-sm text-slate-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Uploading...
+          </div>
+        )}
+        {pendingAttachment && !uploading && (
+          <div className="flex items-center gap-2 mb-2 p-2 border border-slate-200 rounded-md bg-slate-50">
+            {pendingAttachment.mime_type?.startsWith('image/') ? (
+              <img
+                src={pendingAttachment.url}
+                alt={pendingAttachment.filename}
+                className="h-10 w-10 object-cover rounded"
+              />
+            ) : (
+              <div className="h-10 w-10 bg-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
+                <Paperclip className="w-4 h-4" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-slate-700 truncate">{pendingAttachment.filename}</p>
+              <p className="text-xs text-slate-400">{formatFileSize(pendingAttachment.file_size)}</p>
+            </div>
+            <button
+              onClick={handleCancelAttachment}
+              className="p-1 text-slate-400 hover:text-slate-700"
+              data-testid="cancel-attachment-btn"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            className="hidden"
+            data-testid="file-input"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-400 hover:text-slate-700 transition-colors"
+            data-testid="attach-file-btn"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
           <textarea
             value={input}
             onChange={handleInputChange}
@@ -152,7 +225,7 @@ const ChatPanel = ({ channel }) => {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() && !pendingAttachment}
             className="bg-blue-800 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-md px-3 py-2 text-sm font-medium transition-colors flex items-center gap-1.5"
             data-testid="chat-send-btn"
           >

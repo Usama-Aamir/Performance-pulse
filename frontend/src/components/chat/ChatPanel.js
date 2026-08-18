@@ -21,7 +21,6 @@ const ChatPanel = ({ channel }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const mentionContainerRef = useRef(null);
-  const mentionUsersFetchedRef = useRef(false);
   const channelMessages = channel ? messages[channel.id] || [] : [];
 
   const channelName = channel
@@ -38,6 +37,10 @@ const ChatPanel = ({ channel }) => {
     }
     return () => setActiveChannelId(null);
   }, [channel?.id]);
+
+  useEffect(() => {
+    fetchMentionUsers();
+  }, []);
 
   useEffect(() => {
     if (channel && channelMessages.length > 0) {
@@ -97,25 +100,8 @@ const ChatPanel = ({ channel }) => {
       setMentionActive(true);
       setMentionQuery(match[1]);
       setMentionStartIndex(cursor - match[0].length);
-      fetchMentionUsers();
     } else {
       setMentionActive(false);
-    }
-  };
-
-  const fetchMentionUsers = async () => {
-    if (mentionUsersFetchedRef.current) return;
-    mentionUsersFetchedRef.current = true;
-    try {
-      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/users/dm-list`, {
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMentionUsers(data || []);
-      }
-    } catch (e) {
-      // silent fail
     }
   };
 
@@ -168,6 +154,20 @@ const ChatPanel = ({ channel }) => {
   const handleGifSelect = (gifData) => {
     setPendingAttachment(gifData);
     setShowGifPicker(false);
+  };
+
+  const fetchMentionUsers = async () => {
+    try {
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/users/dm-list`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMentionUsers(data || []);
+      }
+    } catch (e) {
+      // silent fail
+    }
   };
 
   const handleFileSelect = async (e) => {

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import MessageBubble from './MessageBubble';
-import { Send, MessageSquare, Paperclip, X, Loader2 } from 'lucide-react';
+import { Send, MessageSquare, Paperclip, X, Loader2, Gift } from 'lucide-react';
+import GifPicker from './GifPicker';
 
 const ChatPanel = ({ channel }) => {
   const { user } = useAuth();
@@ -10,6 +11,7 @@ const ChatPanel = ({ channel }) => {
   const [input, setInput] = useState('');
   const [pendingAttachment, setPendingAttachment] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -87,6 +89,11 @@ const ChatPanel = ({ channel }) => {
         { method: 'DELETE', credentials: 'include' }
       );
     } catch (e) {}
+  };
+
+  const handleGifSelect = (gifData) => {
+    setPendingAttachment(gifData);
+    setShowGifPicker(false);
   };
 
   const handleFileSelect = async (e) => {
@@ -187,7 +194,9 @@ const ChatPanel = ({ channel }) => {
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-slate-700 truncate">{pendingAttachment.filename}</p>
-              <p className="text-xs text-slate-400">{formatFileSize(pendingAttachment.file_size)}</p>
+              {pendingAttachment.file_size > 0 && (
+                <p className="text-xs text-slate-400">{formatFileSize(pendingAttachment.file_size)}</p>
+              )}
             </div>
             <button
               onClick={handleCancelAttachment}
@@ -198,7 +207,7 @@ const ChatPanel = ({ channel }) => {
             </button>
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 relative">
           <input
             type="file"
             ref={fileInputRef}
@@ -206,12 +215,25 @@ const ChatPanel = ({ channel }) => {
             className="hidden"
             data-testid="file-input"
           />
+          {showGifPicker && (
+            <GifPicker
+              onSelect={handleGifSelect}
+              onClose={() => setShowGifPicker(false)}
+            />
+          )}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-2 text-slate-400 hover:text-slate-700 transition-colors"
             data-testid="attach-file-btn"
           >
             <Paperclip className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setShowGifPicker(!showGifPicker)}
+            className={`p-2 transition-colors ${showGifPicker ? 'text-blue-700' : 'text-slate-400 hover:text-slate-700'}`}
+            data-testid="gif-btn"
+          >
+            <Gift className="w-5 h-5" />
           </button>
           <textarea
             value={input}

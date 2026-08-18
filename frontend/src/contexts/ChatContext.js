@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 
 const ChatContext = createContext(null);
@@ -11,8 +12,60 @@ const buildWsUrl = () => {
     .replace('http://', 'ws://') + '/ws/chat';
 };
 
+let _audioCtx = null;
+const getAudioContext = () => {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_audioCtx.state === 'suspended') {
+    _audioCtx.resume();
+  }
+  return _audioCtx;
+};
+
+const playPing = () => {
+  try {
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (e) {
+    // AudioContext unavailable or blocked - silent fail
+  }
+};
+
+const requestNotificationPermission = () => {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+};
+
+const isTabHidden = () => document.hidden || document.visibilityState !== 'visible';
+
+const showBrowserNotification = (title, body, onClick) => {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, { body, icon: '/favicon.ico' });
+    n.onclick = () => {
+      window.focus();
+      onClick?.();
+      n.close();
+    };
+  } catch (e) {
+    // silent fail
+  }
+};
+
 export const ChatProvider = ({ children }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [connected, setConnected] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState({});
@@ -24,6 +77,17 @@ export const ChatProvider = ({ children }) => {
   const reconnectAttemptsRef = useRef(0);
   const activeChannelIdRef = useRef(null);
   const mountedRef = useRef(true);
+  const userRef = useRef(null);
+  const messagesRef = useRef({});
+  const channelsMetaRef = useRef({});
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const fetchUnreadCounts = useCallback(async () => {
     try {
@@ -39,6 +103,25 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
+  const fetchChannelsMeta = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/channels`, { credentials: 'include' });
+      if (res.ok) {
+        const channels = await res.json();
+        const meta = {};
+        for (const ch of channels) {
+          meta[ch.id] = {
+            name: ch.type === 'dm' ? (ch.other_user?.full_name || 'Direct Message') : ch.name,
+            type: ch.type,
+          };
+        }
+        channelsMetaRef.current = { ...channelsMetaRef.current, ...meta };
+      }
+    } catch (e) {
+      // silent fail — notification titles fall back to a generic label
+    }
+  }, []);
+
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
 
@@ -51,6 +134,8 @@ export const ChatProvider = ({ children }) => {
       setReconnecting(false);
       reconnectAttemptsRef.current = 0;
       fetchUnreadCounts();
+      fetchChannelsMeta();
+      requestNotificationPermission();
     };
 
     ws.onmessage = (event) => {
@@ -62,15 +147,28 @@ export const ChatProvider = ({ children }) => {
         if (type === 'new_message') {
           const msg = data.message;
           const chId = msg.channel_id;
+          const isOwn = msg.sender_id === userRef.current?.id;
+          const isViewingChannel = activeChannelIdRef.current === chId;
+
           setMessages(prev => ({
             ...prev,
             [chId]: [...(prev[chId] || []), msg],
           }));
-          if (activeChannelIdRef.current !== chId) {
+          if (!isViewingChannel) {
             setUnreadCounts(prev => ({
               ...prev,
               [chId]: (prev[chId] || 0) + 1,
             }));
+          }
+
+          if (!isOwn && !isViewingChannel) {
+            playPing();
+          }
+          if (!isOwn && isTabHidden()) {
+            const meta = channelsMetaRef.current[chId];
+            const title = meta?.type === 'dm' ? (msg.sender_name || 'New message') : `#${meta?.name || 'channel'}`;
+            const body = (msg.content || '').slice(0, 100);
+            showBrowserNotification(title, body, () => navigate('/messages'));
           }
         } else if (type === 'message_edited') {
           const msg = data.message;
@@ -101,6 +199,11 @@ export const ChatProvider = ({ children }) => {
           }));
         } else if (type === 'reaction_update') {
           const { message_id, channel_id, reactions } = data;
+          const prevArr = messagesRef.current[channel_id] || [];
+          const existingMsg = prevArr.find(m => m.id === message_id);
+          const prevReactions = existingMsg?.reactions || [];
+          const isOwnMessage = existingMsg?.sender_id === userRef.current?.id;
+
           setMessages(prev => {
             const arr = prev[channel_id] || [];
             return {
@@ -110,6 +213,24 @@ export const ChatProvider = ({ children }) => {
               ),
             };
           });
+
+          if (isOwnMessage) {
+            let addedEmoji = null;
+            for (const r of reactions) {
+              const prevEntry = prevReactions.find(pr => pr.emoji === r.emoji);
+              const prevCount = prevEntry?.users?.length || 0;
+              if ((r.users?.length || 0) > prevCount) {
+                addedEmoji = r.emoji;
+                break;
+              }
+            }
+            if (addedEmoji) {
+              playPing();
+              if (isTabHidden()) {
+                showBrowserNotification('New reaction', `${addedEmoji} on your message`, () => navigate('/messages'));
+              }
+            }
+          }
         }
       } catch (e) {
         // ignore malformed messages
@@ -130,7 +251,7 @@ export const ChatProvider = ({ children }) => {
     ws.onerror = () => {
       // onclose will handle reconnect
     };
-  }, [fetchUnreadCounts]);
+  }, [fetchUnreadCounts, fetchChannelsMeta, navigate]);
 
   useEffect(() => {
     if (!user) {
@@ -243,13 +364,15 @@ export const ChatProvider = ({ children }) => {
         body: JSON.stringify({ user_id: targetUserId }),
       });
       if (res.ok) {
-        return await res.json();
+        const dm = await res.json();
+        fetchChannelsMeta();
+        return dm;
       }
     } catch (e) {
       // silent fail
     }
     return null;
-  }, []);
+  }, [fetchChannelsMeta]);
 
   return (
     <ChatContext.Provider

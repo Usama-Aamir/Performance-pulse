@@ -29,6 +29,37 @@ const formatFileSize = (bytes) => {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 };
 
+const MENTION_REGEX = /@([A-Z][a-zA-Z'-]*(?:\s[A-Z][a-zA-Z'-]*)?)/g;
+
+const renderMentionedContent = (content, currentUserFullName) => {
+  if (!content) return content;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  const regex = new RegExp(MENTION_REGEX);
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(content.slice(lastIndex, match.index));
+    }
+    const mentionText = match[0];
+    const mentionName = match[1];
+    const isSelf = currentUserFullName && mentionName === currentUserFullName;
+    parts.push(
+      <span
+        key={`mention-${match.index}`}
+        className={isSelf ? 'bg-yellow-100 text-yellow-800 rounded px-0.5' : 'font-medium text-blue-700'}
+      >
+        {mentionText}
+      </span>
+    );
+    lastIndex = match.index + mentionText.length;
+  }
+  if (lastIndex < content.length) {
+    parts.push(content.slice(lastIndex));
+  }
+  return parts;
+};
+
 const AttachmentRenderer = ({ attachment }) => {
   if (!attachment) return null;
   const isImage = attachment.mime_type?.startsWith('image/') || attachment.is_gif;
@@ -150,7 +181,9 @@ const MessageBubble = ({ message, onEdit, onDelete }) => {
         ) : (
           <>
             {message.content && (
-              <p className="text-sm text-slate-700 break-words whitespace-pre-wrap">{message.content}</p>
+              <p className="text-sm text-slate-700 break-words whitespace-pre-wrap">
+                {renderMentionedContent(message.content, user?.full_name)}
+              </p>
             )}
             <AttachmentRenderer attachment={message.attachment} />
             {reactions.filter(r => r.users?.length > 0).length > 0 && (

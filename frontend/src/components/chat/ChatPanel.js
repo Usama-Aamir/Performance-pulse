@@ -12,9 +12,16 @@ const ChatPanel = ({ channel }) => {
   const [pendingAttachment, setPendingAttachment] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [mentionActive, setMentionActive] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionStartIndex, setMentionStartIndex] = useState(null);
+  const [mentionUsers, setMentionUsers] = useState([]);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+  const mentionContainerRef = useRef(null);
+  const mentionUsersFetchedRef = useRef(false);
   const channelMessages = channel ? messages[channel.id] || [] : [];
 
   const channelName = channel
@@ -52,21 +59,88 @@ const ChatPanel = ({ channel }) => {
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === 'Escape' && mentionActive) {
+      setMentionActive(false);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
+  useEffect(() => {
+    if (!mentionActive) return;
+    const handleClickOutside = (e) => {
+      if (mentionContainerRef.current && !mentionContainerRef.current.contains(e.target)) {
+        setMentionActive(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [mentionActive]);
+
   const handleInputChange = (e) => {
-    setInput(e.target.value);
+    const value = e.target.value;
+    const cursor = e.target.selectionStart;
+    setInput(value);
     if (channel) {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
         sendTyping(channel.id);
       }, 300);
     }
+
+    const textBeforeCursor = value.slice(0, cursor);
+    const match = textBeforeCursor.match(/@([^\s@]*)$/);
+    if (match) {
+      setMentionActive(true);
+      setMentionQuery(match[1]);
+      setMentionStartIndex(cursor - match[0].length);
+      fetchMentionUsers();
+    } else {
+      setMentionActive(false);
+    }
   };
+
+  const fetchMentionUsers = async () => {
+    if (mentionUsersFetchedRef.current) return;
+    mentionUsersFetchedRef.current = true;
+    try {
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/users/dm-list`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMentionUsers(data || []);
+      }
+    } catch (e) {
+      // silent fail
+    }
+  };
+
+  const handleMentionSelect = (targetUser) => {
+    if (mentionStartIndex === null) return;
+    const before = input.slice(0, mentionStartIndex);
+    const after = input.slice(mentionStartIndex + 1 + mentionQuery.length);
+    const newValue = `${before}@${targetUser.full_name} ${after}`;
+    setInput(newValue);
+    setMentionActive(false);
+    setMentionQuery('');
+    setMentionStartIndex(null);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) {
+        const cursorPos = before.length + targetUser.full_name.length + 2;
+        el.focus();
+        el.setSelectionRange(cursorPos, cursorPos);
+      }
+    });
+  };
+
+  const filteredMentionUsers = mentionUsers
+    .filter((u) => u.full_name?.toLowerCase().includes(mentionQuery.toLowerCase()))
+    .slice(0, 6);
 
   const handleEditMessage = async (messageId, newContent) => {
     try {
@@ -235,16 +309,37 @@ const ChatPanel = ({ channel }) => {
           >
             <Gift className="w-5 h-5" />
           </button>
-          <textarea
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
-            rows={1}
-            className="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-            style={{ maxHeight: '120px', minHeight: '40px' }}
-            data-testid="chat-message-input"
-          />
+          <div ref={mentionContainerRef} className="relative flex-1">
+            {mentionActive && filteredMentionUsers.length > 0 && (
+              <div
+                className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-slate-200 rounded-md shadow-sm max-h-48 overflow-y-auto z-50"
+                data-testid="mention-dropdown"
+              >
+                {filteredMentionUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => handleMentionSelect(u)}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    data-testid={`mention-option-${u.id}`}
+                  >
+                    <span className="font-medium">{u.full_name}</span>
+                    {u.role && <span className="text-xs text-slate-400 capitalize">{u.role}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+              rows={1}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ maxHeight: '120px', minHeight: '40px' }}
+              data-testid="chat-message-input"
+            />
+          </div>
           <button
             onClick={handleSend}
             disabled={!input.trim() && !pendingAttachment}

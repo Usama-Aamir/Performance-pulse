@@ -2894,53 +2894,62 @@ async def mark_channel_read(
 
 @api_router.post("/dms")
 async def create_or_get_dm(request: Request, current_user: dict = Depends(require_active)):
-    body = await request.json()
-    target_user_id = body.get("user_id", "").strip()
-    if not target_user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    if target_user_id == current_user["id"]:
-        raise HTTPException(status_code=400, detail="Cannot start a DM with yourself")
-
     try:
-        target = await db.profiles.find_one({"_id": ObjectId(target_user_id)}, {"password_hash": 0})
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid user ID")
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
-    if target.get("status") != "active":
-        raise HTTPException(status_code=400, detail="User is not active")
+        body = await request.json()
+        target_user_id = (body.get("user_id") or "").strip()
+        logger.info(f"POST /api/dms: target_user_id={target_user_id}, current_user={current_user['id']}")
+        if not target_user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+        if target_user_id == current_user["id"]:
+            raise HTTPException(status_code=400, detail="Cannot start a DM with yourself")
 
-    dm_between = sorted([current_user["id"], target_user_id])
+        try:
+            target = await db.profiles.find_one({"_id": ObjectId(target_user_id)}, {"password_hash": 0})
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid user ID")
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        if target.get("status") != "active":
+            raise HTTPException(status_code=400, detail="User is not active")
 
-    existing = await db.channels.find_one({"type": "dm", "dm_between": dm_between})
-    if existing:
-        ch_dict = doc_to_dict(existing)
-        ch_dict["other_user"] = {
+        dm_between = sorted([current_user["id"], target_user_id])
+
+        existing = await db.channels.find_one({"type": "dm", "dm_between": dm_between})
+        if existing:
+            logger.info(f"POST /api/dms: existing DM found channel_id={existing.get('_id')}")
+            ch_dict = doc_to_dict(existing)
+            ch_dict["other_user"] = {
+                "id": str(target["_id"]),
+                "full_name": target.get("full_name", ""),
+                "role": target.get("role", ""),
+                "status": target.get("status", "")
+            }
+            return ch_dict
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        dm_doc = {
+            "type": "dm",
+            "members": [current_user["id"], target_user_id],
+            "dm_between": dm_between,
+            "created_by": current_user["id"],
+            "created_at": now_iso
+        }
+        result = await db.channels.insert_one(dm_doc)
+        logger.info(f"POST /api/dms: created new DM channel_id={result.inserted_id}")
+        dm_doc["id"] = str(result.inserted_id)
+        dm_doc.pop("_id", None)
+        dm_doc["other_user"] = {
             "id": str(target["_id"]),
             "full_name": target.get("full_name", ""),
             "role": target.get("role", ""),
             "status": target.get("status", "")
         }
-        return ch_dict
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    dm_doc = {
-        "type": "dm",
-        "members": [current_user["id"], target_user_id],
-        "dm_between": dm_between,
-        "created_by": current_user["id"],
-        "created_at": now_iso
-    }
-    result = await db.channels.insert_one(dm_doc)
-    dm_doc["id"] = str(result.inserted_id)
-    dm_doc.pop("_id", None)
-    dm_doc["other_user"] = {
-        "id": str(target["_id"]),
-        "full_name": target.get("full_name", ""),
-        "role": target.get("role", ""),
-        "status": target.get("status", "")
-    }
-    return dm_doc
+        return dm_doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"POST /api/dms error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 @api_router.get("/dms")
 async def list_dms(current_user: dict = Depends(require_active)):

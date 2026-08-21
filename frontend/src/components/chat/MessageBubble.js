@@ -29,7 +29,7 @@ const formatFileSize = (bytes) => {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 };
 
-const MENTION_REGEX = /@([A-Z][a-zA-Z'-]*(?:\s[A-Z][a-zA-Z'-]*)?)/g;
+const MENTION_REGEX = /@([A-Za-z][a-zA-Z'-]*(?:\s[A-Za-z][a-zA-Z'-]*)*)/g;
 
 const renderMentionedContent = (content, currentUserFullName) => {
   if (!content) return content;

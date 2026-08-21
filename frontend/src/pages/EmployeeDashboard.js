@@ -202,7 +202,8 @@ export default function EmployeeDashboard() {
   };
 
   const getGreeting = () => {
-    const h = new Date().getHours();
+    const mytHour = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur', hour: 'numeric', hour12: false });
+    const h = parseInt(mytHour);
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
     return 'Good evening';

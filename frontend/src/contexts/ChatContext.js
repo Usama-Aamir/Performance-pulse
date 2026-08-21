@@ -282,7 +282,9 @@ export const ChatProvider = ({ children }) => {
   const sendMessage = useCallback((channelId, content, attachment = null) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'message', channel_id: channelId, content, attachment }));
+      return true;
     }
+    return false;
   }, []);
 
   const uploadAttachment = useCallback(async (file, channelId) => {

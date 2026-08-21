@@ -59,9 +59,14 @@ const ChatPanel = ({ channel }) => {
     const content = input.trim();
     if (!content && !pendingAttachment) return;
     if (!channel) return;
-    sendMessage(channel.id, content, pendingAttachment);
-    setInput('');
-    setPendingAttachment(null);
+    const sent = sendMessage(channel.id, content, pendingAttachment);
+    if (!sent) {
+      setInput(content);
+      alert('Message failed to send. Please wait for reconnection.');
+    } else {
+      setInput('');
+      setPendingAttachment(null);
+    }
   };
 
   const handleKeyDown = (e) => {

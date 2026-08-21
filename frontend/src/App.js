@@ -54,14 +54,21 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
+const AuthOnlyRoute = ({ children }) => {
+  const { user } = useAuth();
+  if (user === undefined) return <Spinner />;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+};
+
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-          <Route path="/waiting-approval" element={<WaitingApproval />} />
-          <Route path="/access-denied" element={<AccessDenied />} />
+          <Route path="/waiting-approval" element={<AuthOnlyRoute><WaitingApproval /></AuthOnlyRoute>} />
+          <Route path="/access-denied" element={<AuthOnlyRoute><AccessDenied /></AuthOnlyRoute>} />
 
           <Route element={<ChatProvider><Outlet /></ChatProvider>}>
             {/* Employee */}

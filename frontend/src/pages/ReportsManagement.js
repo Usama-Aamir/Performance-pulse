@@ -13,7 +13,7 @@ const formatDate = (d) => { try { return format(new Date(d + 'T00:00:00'), 'dd M
 
 const formatDateTime = (dt) => {
   if (!dt) return '—';
-  try { return format(new Date(dt), 'dd MMM yyyy, HH:mm'); }
+  try { return new Date(dt).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
   catch { return dt; }
 };
 

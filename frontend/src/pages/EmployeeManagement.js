@@ -43,7 +43,10 @@ export default function EmployeeManagement() {
     try {
       await API.put(`/users/${userId}/status`, { status });
       fetchUsers();
-    } catch (e) {} finally { setActionLoading(null); }
+    } catch (e) {
+      alert('Action failed. Please try again.');
+      fetchUsers();
+    } finally { setActionLoading(null); }
   };
 
   const updateRole = async (userId, role) => {
@@ -51,7 +54,10 @@ export default function EmployeeManagement() {
     try {
       await API.put(`/users/${userId}/role`, { role });
       fetchUsers();
-    } catch (e) {} finally { setActionLoading(null); }
+    } catch (e) {
+      alert('Action failed. Please try again.');
+      fetchUsers();
+    } finally { setActionLoading(null); }
   };
 
   const filtered = users.filter(u =>

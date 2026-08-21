@@ -505,12 +505,9 @@ async def startup():
     try:
         await db.channels.drop_index("dm_between_1")
     except Exception:
-        pass  # index doesn't exist, that's fine
-    await db.channels.create_index(
-        "dm_between",
-        unique=True,
-        partialFilterExpression={"dm_between": {"$type": "array"}}
-    )
+        pass
+    # No create_index for dm_between — unique multikey
+    # indexes on array fields don't work for this use case
     await db.messages.create_index([("channel_id", 1), ("created_at", 1)])
     await db.messages.create_index("sender_id")
     await db.messages.create_index([("channel_id", 1), ("deleted", 1)])

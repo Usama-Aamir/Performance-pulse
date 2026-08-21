@@ -66,7 +66,7 @@ const LeaveRequestsPage = () => {
 
   const formatDate = (dateStr) => {
     try {
-      return format(new Date(dateStr), 'dd MMM yyyy');
+      return format(new Date(dateStr + 'T00:00:00'), 'dd MMM yyyy');
     } catch {
       return dateStr;
     }

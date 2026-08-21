@@ -843,9 +843,11 @@ async def update_user_profile(user_id: str, request: Request, current_user: dict
     if not update_data:
         raise HTTPException(status_code=400, detail="No valid fields to update")
     try:
-        await db.profiles.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
+        result = await db.profiles.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
 
     return {"message": "Profile updated"}
 
@@ -2749,6 +2751,10 @@ async def edit_message(
     updated = await db.messages.find_one({"_id": ObjectId(message_id)})
     updated_dict = doc_to_dict(updated)
     updated_dict["channel_id"] = str(updated_dict["channel_id"])
+    await ws_manager.broadcast(str(updated["channel_id"]), {
+        "type": "message_edited",
+        "message": updated_dict
+    })
     return updated_dict
 
 @api_router.delete("/messages/{message_id}")
@@ -2772,6 +2778,12 @@ async def delete_message(
         {"_id": ObjectId(message_id)},
         {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": current_user["id"], "content": None}}
     )
+    updated = await db.messages.find_one({"_id": ObjectId(message_id)})
+    await ws_manager.broadcast(str(updated["channel_id"]), {
+        "type": "message_deleted",
+        "message_id": message_id,
+        "channel_id": str(updated["channel_id"])
+    })
     return {"message": "Message deleted"}
 
 @api_router.post("/messages/{message_id}/reactions")

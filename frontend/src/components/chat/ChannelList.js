@@ -50,8 +50,6 @@ const ChannelList = ({ selectedChannelId, onSelectChannel }) => {
   const handleSelectDMUser = async (targetUser) => {
     setShowUserPicker(false);
     const dm = await startDM(targetUser.id);
-    console.log('DM created:', dm);
-    console.log('Calling onSelectChannel with:', dm?.id);
     if (dm) {
       fetchData();
       onSelectChannel(dm);

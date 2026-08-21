@@ -10,7 +10,7 @@ const ROLES = ['employee', 'admin', 'boss'];
 const STATUSES = ['active', 'inactive', 'rejected', 'pending'];
 const DEPARTMENTS = ['Sales', 'Marketing', 'Operations', 'IT', 'HR', 'Management', 'Other'];
 
-const formatDate = (d) => { try { return format(new Date(d), 'dd MMM yyyy'); } catch { return d; } };
+const formatDate = (d) => { try { return format(new Date(d + 'T00:00:00'), 'dd MMM yyyy'); } catch { return d; } };
 
 export default function EmployeeManagement() {
   const navigate = useNavigate();

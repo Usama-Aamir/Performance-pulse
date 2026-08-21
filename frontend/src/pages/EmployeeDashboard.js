@@ -105,12 +105,11 @@ export default function EmployeeDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [todayRes, recentRes, attRes, histRes, myReportsRes] = await Promise.all([
+      const [todayRes, recentRes, attRes, histRes] = await Promise.all([
         API.get('/reports/today'),
         API.get('/reports/my'),
         API.get('/attendance/today'),
         API.get('/attendance/my-history'),
-        API.get('/reports/my'),
       ]);
       setTodayReport(todayRes.data?.report || null);
       setIsWorkingDay(todayRes.data?.is_working_day !== false);
@@ -118,7 +117,7 @@ export default function EmployeeDashboard() {
       setAttendance(attRes.data?.attendance || null);
       setAttWorkingDay(attRes.data?.is_working_day !== false);
       setMyHistory(histRes.data);
-      setMyReportsHistory(myReportsRes.data || []);
+      setMyReportsHistory(recentRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };

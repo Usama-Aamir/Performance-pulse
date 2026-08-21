@@ -366,13 +366,23 @@ export const ChatProvider = ({ children }) => {
       if (res.ok) {
         const dm = await res.json();
         fetchChannelsMeta();
+        if (wsRef.current) {
+          wsRef.current.onclose = null; // prevent reconnect loop
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        // Trigger a fresh connect after a short delay to allow
+        // the close to complete
+        setTimeout(() => {
+          if (mountedRef.current) connect();
+        }, 500);
         return dm;
       }
     } catch (e) {
       // silent fail
     }
     return null;
-  }, [fetchChannelsMeta]);
+  }, [fetchChannelsMeta, connect]);
 
   return (
     <ChatContext.Provider

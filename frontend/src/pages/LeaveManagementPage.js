@@ -51,6 +51,8 @@ const LeaveManagementPage = () => {
       setPendingRequests(res.data || []);
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 

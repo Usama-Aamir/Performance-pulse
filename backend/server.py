@@ -15,6 +15,7 @@ import jwt
 import logging
 import uuid
 import io
+import traceback
 import requests as http_requests
 from pathlib import Path
 import openpyxl
@@ -2948,8 +2949,9 @@ async def create_or_get_dm(request: Request, current_user: dict = Depends(requir
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"POST /api/dms error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+        logger.error(f"POST /dms unhandled error: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/dms")
 async def list_dms(current_user: dict = Depends(require_active)):

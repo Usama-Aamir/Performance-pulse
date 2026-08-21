@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useChat } from '@/contexts/ChatContext';
 import {
   LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, TrendingUp, MessageSquare
 } from 'lucide-react';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
+  const { unreadCounts } = useChat();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
 
   const adminLinks = [
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
@@ -81,6 +85,11 @@ const Sidebar = () => {
             >
               <link.icon className={`w-4 h-4 ${isActive ? 'text-blue-800' : 'text-slate-400'}`} />
               {link.label}
+              {link.label === 'Messages' && totalUnread > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-amber-400 text-white text-xs font-semibold rounded-full">
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
             </Link>
           );
         })}

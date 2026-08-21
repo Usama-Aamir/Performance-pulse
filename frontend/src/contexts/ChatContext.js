@@ -135,7 +135,7 @@ export const ChatProvider = ({ children }) => {
       reconnectAttemptsRef.current = 0;
       fetchUnreadCounts();
       fetchChannelsMeta();
-      requestNotificationPermission();
+      console.log('Notification permission:', Notification.permission);
     };
 
     ws.onmessage = (event) => {

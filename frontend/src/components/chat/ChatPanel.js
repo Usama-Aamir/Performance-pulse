@@ -16,6 +16,9 @@ const ChatPanel = ({ channel }) => {
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionStartIndex, setMentionStartIndex] = useState(null);
   const [mentionUsers, setMentionUsers] = useState([]);
+  const [notificationPermission, setNotificationPermission] = useState(
+    'Notification' in window ? Notification.permission : 'granted'
+  );
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -156,6 +159,11 @@ const ChatPanel = ({ channel }) => {
     setShowGifPicker(false);
   };
 
+  const handleEnableNotifications = async () => {
+    const result = await Notification.requestPermission();
+    setNotificationPermission(result);
+  };
+
   const fetchMentionUsers = async () => {
     try {
       const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/users/dm-list`, {
@@ -225,6 +233,21 @@ const ChatPanel = ({ channel }) => {
           <p className="text-xs text-slate-500 capitalize mt-0.5">{channel.other_user.role}</p>
         )}
       </div>
+
+      {notificationPermission === 'default' && (
+        <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+          <span className="text-xs text-blue-700">
+            Enable notifications to get alerts for new messages
+          </span>
+          <button
+            onClick={handleEnableNotifications}
+            className="text-xs font-medium text-blue-800 hover:text-blue-600"
+            data-testid="enable-notifications-btn"
+          >
+            Enable
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3">

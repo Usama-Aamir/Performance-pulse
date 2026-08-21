@@ -2915,7 +2915,13 @@ async def create_or_get_dm(request: Request, current_user: dict = Depends(requir
 
         dm_between = sorted([current_user["id"], target_user_id])
 
-        existing = await db.channels.find_one({"type": "dm", "dm_between": dm_between})
+        existing = await db.channels.find_one({
+            "type": "dm",
+            "$or": [
+                {"dm_between": dm_between},
+                {"members": {"$all": [current_user["id"], target_user_id], "$size": 2}}
+            ]
+        })
         if existing:
             logger.info(f"POST /api/dms: existing DM found channel_id={existing.get('_id')}")
             ch_dict = doc_to_dict(existing)

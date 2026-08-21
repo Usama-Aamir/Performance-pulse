@@ -502,7 +502,15 @@ async def startup():
     await db.leave_requests.create_index([("date_from", 1), ("date_to", 1)])
     await db.channels.create_index("name", unique=True, sparse=True)
     await db.channels.create_index("members")
-    await db.channels.create_index("dm_between", unique=True, sparse=True)
+    try:
+        await db.channels.drop_index("dm_between_1")
+    except Exception:
+        pass  # index doesn't exist, that's fine
+    await db.channels.create_index(
+        "dm_between",
+        unique=True,
+        partialFilterExpression={"dm_between": {"$type": "array"}}
+    )
     await db.messages.create_index([("channel_id", 1), ("created_at", 1)])
     await db.messages.create_index("sender_id")
     await db.messages.create_index([("channel_id", 1), ("deleted", 1)])

@@ -78,10 +78,10 @@ def get_object(path: str):
 REPORT_COL_HEADERS = [
     "Date", "Employee Name", "Department", "Job Title",
     "Morning Planned Tasks 9 AM – 12/1 PM", "Afternoon Planned Tasks 1/2 PM – 6 PM",
-    "Final Completed Work Submit by 6 PM", "Task Category", "Task Status",
+    "Final Completed Work Submit by 8 PM", "Task Category", "Task Status",
     "Calls Made", "Follow-ups", "Interested Leads", "Blockers / Issues",
     "Final Remarks", "Morning Plan Matched?", "Afternoon Plan Matched?",
-    "Overall Tally Status", "Submitted By 6 PM?", "Review Status", "Manager Notes"
+    "Overall Tally Status", "Submitted By 8 PM?", "Review Status", "Manager Notes"
 ]
 
 def generate_excel_template(employee_name: str = "", department: str = "") -> bytes:
@@ -90,14 +90,14 @@ def generate_excel_template(employee_name: str = "", department: str = "") -> by
     ws.title = "Daily Report"
 
     ws.merge_cells("A1:T1")
-    ws["A1"] = "Employee Daily Reporting Template — Morning Plan, Afternoon Plan & 6 PM Final Report"
+    ws["A1"] = "Employee Daily Reporting Template — Morning Plan, Afternoon Plan & 8 PM Final Report"
     ws["A1"].font = Font(bold=True, size=13, color="FFFFFF")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws["A1"].fill = PatternFill("solid", fgColor="1E3A5F")
     ws.row_dimensions[1].height = 30
 
     ws.merge_cells("A2:T2")
-    ws["A2"] = "Rule: Employees plan tasks before/after lunch and submit the final daily report by 6 PM. Final report must tally with the planned tasks."
+    ws["A2"] = "Rule: Employees plan tasks before/after lunch and submit the final daily report by 8 PM. Final report must tally with the planned tasks."
     ws["A2"].font = Font(italic=True, size=10, color="444444")
     ws["A2"].fill = PatternFill("solid", fgColor="EFF6FF")
 
@@ -979,7 +979,7 @@ async def upload_report_confirm(file: UploadFile = File(...), current_user: dict
         "upload_source": "excel",
         "original_filename": file.filename,
         "file_path": stored_path,
-        "submitted_after_6pm": get_myt_now().hour >= 18,
+        "submitted_after_6pm": get_myt_now().hour >= 20,
         "raw_rows": rows,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -1062,7 +1062,7 @@ async def submit_report(request: Request, current_user: dict = Depends(require_a
         "blockers": body.get("blockers", ""),
         "final_remarks": body.get("final_remarks", ""),
         "review_status": "submitted",
-        "submitted_after_6pm": get_myt_now().hour >= 18,
+        "submitted_after_6pm": get_myt_now().hour >= 20,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
 

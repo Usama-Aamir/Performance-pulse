@@ -197,8 +197,25 @@ export default function EmployeeDashboard() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const handleDownloadTemplate = () => {
-    window.open(`${process.env.REACT_APP_BACKEND_URL}/api/reports/template`, '_blank');
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/reports/template`,
+        { credentials: 'include' }
+      );
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'daily_report_template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Failed to download template. Please try again.');
+    }
   };
 
   const getGreeting = () => {
@@ -356,7 +373,7 @@ export default function EmployeeDashboard() {
             {/* Status bar */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <p className="text-sm text-amber-800 font-medium">No report submitted today — deadline 6 PM MYT</p>
+              <p className="text-sm text-amber-800 font-medium">No report submitted today — deadline 8 PM MYT</p>
             </div>
 
             {/* Upload card */}

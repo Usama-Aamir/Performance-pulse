@@ -2226,6 +2226,26 @@ async def cancel_meeting(meeting_id: str, current_user: dict = Depends(require_a
         {"$set": {"status": "cancelled", "updated_at": now_iso}}
     )
 
+    start_utc = datetime.fromisoformat(meeting["start_at"])
+    message = (
+        "❌ Meeting Cancelled\n\n"
+        f"Employee: {meeting.get('employee_name', '')}\n"
+        f"Meeting with: {meeting.get('meeting_with', '')}\n"
+        f"Purpose: {meeting.get('purpose', '')}\n"
+        f"Was scheduled for: {_format_myt(start_utc)}\n"
+        f"Cancelled by: {current_user.get('full_name', '')}"
+    )
+
+    try:
+        send_whatsapp(message)
+    except Exception as e:
+        logger.error(f"WhatsApp cancel notification failed: {e}")
+
+    try:
+        await _post_meeting_alert(message)
+    except Exception as e:
+        logger.error(f"Meeting Alerts cancel notification failed: {e}")
+
     updated = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
     return doc_to_dict(updated)
 

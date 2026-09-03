@@ -2139,7 +2139,6 @@ async def create_meeting(request: Request, current_user: dict = Depends(require_
             {"_id": ObjectId(inserted_id)},
             {"$set": {"whatsapp_notified": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
-        meeting_doc["whatsapp_notified"] = True
     except Exception as e:
         logger.error(f"WhatsApp notification failed for meeting {inserted_id}: {e}")
 
@@ -2149,7 +2148,9 @@ async def create_meeting(request: Request, current_user: dict = Depends(require_
     except Exception as e:
         logger.error(f"Meeting alert post failed for meeting {inserted_id}: {e}")
 
-    return meeting_doc
+    # Re-fetch and serialize cleanly to avoid returning any ObjectId fields
+    inserted = await db.meetings.find_one({"_id": result.inserted_id})
+    return doc_to_dict(inserted)
 
 @api_router.get("/meetings/my")
 async def get_my_meetings(current_user: dict = Depends(require_active)):

@@ -2036,6 +2036,7 @@ def _build_meeting_alert_text(meeting: dict, action: str = "New Meeting Schedule
         f"📅 {action}",
         "",
         f"Employee: {meeting.get('employee_name', '')}",
+        f"Attending: {meeting.get('attendee_name', '')}",
         f"Meeting with: {meeting.get('meeting_with', '')}",
         f"Purpose: {meeting.get('purpose', '')}",
         f"Date & Time: {_format_myt(start_utc)}",
@@ -2080,6 +2081,8 @@ async def create_meeting(request: Request, current_user: dict = Depends(require_
 
     title = (body.get("title") or "").strip()
     meeting_with = (body.get("meeting_with") or "").strip()
+    attendee_name = (body.get("attendee_name") or "").strip()
+    attendee_id = (body.get("attendee_id") or "").strip() or None
     purpose = (body.get("purpose") or "").strip()
     start_at_raw = body.get("start_at")
     duration_minutes = body.get("duration_minutes", 60)
@@ -2089,6 +2092,8 @@ async def create_meeting(request: Request, current_user: dict = Depends(require_
         raise HTTPException(status_code=400, detail="Title is required")
     if not meeting_with:
         raise HTTPException(status_code=400, detail="Meeting with is required")
+    if not attendee_name:
+        raise HTTPException(status_code=400, detail="Attending (from our side) is required")
     if not purpose:
         raise HTTPException(status_code=400, detail="Purpose is required")
     if not start_at_raw:
@@ -2116,6 +2121,8 @@ async def create_meeting(request: Request, current_user: dict = Depends(require_
         "employee_name": current_user.get("full_name", ""),
         "title": title,
         "meeting_with": meeting_with,
+        "attendee_name": attendee_name,
+        "attendee_id": attendee_id,
         "start_at": start_utc.isoformat(),
         "duration_minutes": duration_minutes,
         "location": location,
@@ -2230,6 +2237,7 @@ async def cancel_meeting(meeting_id: str, current_user: dict = Depends(require_a
     message = (
         "❌ Meeting Cancelled\n\n"
         f"Employee: {meeting.get('employee_name', '')}\n"
+        f"Attending: {meeting.get('attendee_name', '')}\n"
         f"Meeting with: {meeting.get('meeting_with', '')}\n"
         f"Purpose: {meeting.get('purpose', '')}\n"
         f"Was scheduled for: {_format_myt(start_utc)}\n"
@@ -2285,6 +2293,7 @@ async def dispatch_reminders(request: Request):
             "⏰ Meeting Reminder\n\n"
             "In 2 hours:\n"
             f"Employee: {meeting.get('employee_name', '')}\n"
+            f"Attending: {meeting.get('attendee_name', '')}\n"
             f"Meeting with: {meeting.get('meeting_with', '')}\n"
             f"Purpose: {meeting.get('purpose', '')}\n"
             f"Time: {start_myt}\n"

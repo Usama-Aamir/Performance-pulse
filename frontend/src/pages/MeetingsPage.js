@@ -37,9 +37,13 @@ export default function MeetingsPage() {
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [users, setUsers] = useState([]);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     meeting_with: '',
+    attendee_name: '',
+    attendee_id: null,
     start_at: '',
     duration_minutes: '60',
     location: '',
@@ -62,6 +66,12 @@ export default function MeetingsPage() {
     fetchMeetings();
   }, []);
 
+  useEffect(() => {
+    API.get('/users/dm-list')
+      .then(res => setUsers(res.data || []))
+      .catch(() => {});
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -77,6 +87,8 @@ export default function MeetingsPage() {
       setFormData({
         title: '',
         meeting_with: '',
+        attendee_name: '',
+        attendee_id: null,
         start_at: '',
         duration_minutes: '60',
         location: '',
@@ -154,6 +166,52 @@ export default function MeetingsPage() {
                         required
                       />
                     </div>
+                  </div>
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Attending (from our side)</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        value={formData.attendee_name}
+                        onChange={(e) => {
+                          setFormData({ ...formData, attendee_name: e.target.value, attendee_id: null });
+                          setShowUserDropdown(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setShowUserDropdown(false);
+                        }}
+                        onBlur={() => setTimeout(() => setShowUserDropdown(false), 150)}
+                        className="w-full border border-slate-300 rounded-md pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Type or select an employee"
+                        required
+                        autoComplete="off"
+                      />
+                    </div>
+                    {showUserDropdown && formData.attendee_name && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-auto">
+                        {users
+                          .filter(u => u.full_name?.toLowerCase().includes(formData.attendee_name.toLowerCase()))
+                          .slice(0, 6)
+                          .map(u => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setFormData({ ...formData, attendee_name: u.full_name, attendee_id: u.id });
+                                setShowUserDropdown(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 focus:bg-slate-50"
+                            >
+                              {u.full_name}
+                            </button>
+                          ))}
+                        {users.filter(u => u.full_name?.toLowerCase().includes(formData.attendee_name.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-slate-400">No matches</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Date & Time</label>
@@ -251,6 +309,9 @@ export default function MeetingsPage() {
                           </div>
                           <p className="text-sm text-slate-700 mb-1">
                             <span className="font-medium">With:</span> {meeting.meeting_with}
+                          </p>
+                          <p className="text-sm text-slate-700 mb-1">
+                            <span className="font-medium">Attending:</span> {meeting.attendee_name}
                           </p>
                           <p className="text-sm text-slate-600 mb-2">{meeting.purpose}</p>
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">

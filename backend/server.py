@@ -37,6 +37,14 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 COOKIE_SAMESITE = "none" if COOKIE_SECURE else "lax"
 
 # ─────────────────────────────────────────────
+# ULTRAMSG / WHATSAPP / CRON
+# ─────────────────────────────────────────────
+ULTRAMSG_INSTANCE_ID = os.environ.get("ULTRAMSG_INSTANCE_ID")
+ULTRAMSG_TOKEN = os.environ.get("ULTRAMSG_TOKEN")
+BOSS_WHATSAPP_NUMBER = os.environ.get("BOSS_WHATSAPP_NUMBER")
+CRON_SECRET = os.environ.get("CRON_SECRET")
+
+# ─────────────────────────────────────────────
 # OBJECT STORAGE
 # ─────────────────────────────────────────────
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
@@ -71,6 +79,24 @@ def get_object(path: str):
     )
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+# ─────────────────────────────────────────────
+# WHATSAPP NOTIFIER (UltraMsg)
+# ─────────────────────────────────────────────
+
+def send_whatsapp(message: str):
+    if not ULTRAMSG_INSTANCE_ID or not ULTRAMSG_TOKEN or not BOSS_WHATSAPP_NUMBER:
+        raise RuntimeError("UltraMsg credentials not configured")
+    url = f"https://api.ultramsg.com/{ULTRAMSG_INSTANCE_ID}/messages/chat"
+    payload = {
+        "token": ULTRAMSG_TOKEN,
+        "to": BOSS_WHATSAPP_NUMBER,
+        "body": message,
+        "priority": 10
+    }
+    response = http_requests.post(url, json=payload, timeout=30)
+    response.raise_for_status()
+    return response.json()
 
 # ─────────────────────────────────────────────
 # EXCEL HELPERS
@@ -500,6 +526,9 @@ async def startup():
     await db.leave_requests.create_index([("employee_id", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("status", 1), ("date_from", -1)])
     await db.leave_requests.create_index([("date_from", 1), ("date_to", 1)])
+    await db.meetings.create_index([("employee_id", 1), ("start_at", -1)])
+    await db.meetings.create_index([("status", 1), ("start_at", 1)])
+    await db.meetings.create_index([("start_at", 1)])
     await db.channels.create_index("name", unique=True, sparse=True)
     await db.channels.create_index("members")
     try:
@@ -559,6 +588,19 @@ async def startup():
                 })
         except Exception as e:
             logger.error(f"Channel seeding failed (Management): {e}")
+
+        try:
+            meeting_alerts = await db.channels.find_one({"name": "Meeting Alerts", "type": "public"})
+            if not meeting_alerts:
+                await db.channels.insert_one({
+                    "name": "Meeting Alerts",
+                    "type": "public",
+                    "members": [],
+                    "created_by": "system",
+                    "created_at": now_iso
+                })
+        except Exception as e:
+            logger.error(f"Channel seeding failed (Meeting Alerts): {e}")
     except Exception as e:
         logger.error(f"Channel seeding failed: {e}")
 

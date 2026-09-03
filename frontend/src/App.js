@@ -17,6 +17,7 @@ import MyProfile from '@/pages/MyProfile';
 import LeaveRequestsPage from '@/pages/LeaveRequestsPage';
 import LeaveManagementPage from '@/pages/LeaveManagementPage';
 import MonthlyAttendanceReportPage from '@/pages/MonthlyAttendanceReportPage';
+import MeetingsPage from '@/pages/MeetingsPage';
 import MessagesPage from '@/pages/MessagesPage';
 import '@/App.css';
 
@@ -91,6 +92,9 @@ function App() {
 
             {/* Shared: Employee Profile (admin + boss) */}
             <Route path="/employee/:id" element={<ProtectedRoute roles={['admin', 'boss']}><EmployeeProfile /></ProtectedRoute>} />
+
+            {/* Meetings (all active roles) */}
+            <Route path="/meetings" element={<ProtectedRoute roles={['employee', 'admin', 'boss']}><MeetingsPage /></ProtectedRoute>} />
 
             {/* My Profile (all active roles) */}
             <Route path="/my-profile" element={<ProtectedRoute roles={['employee', 'admin', 'boss']}><MyProfile /></ProtectedRoute>} />

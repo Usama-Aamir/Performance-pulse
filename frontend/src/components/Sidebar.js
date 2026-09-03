@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import {
-  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, TrendingUp, MessageSquare
+  LayoutDashboard, Users, FileText, LogOut, Activity, Menu, X, User, Clock, Calendar, CalendarPlus, TrendingUp, MessageSquare
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -19,6 +19,7 @@ const Sidebar = () => {
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/admin/employees', icon: Users, label: 'Employees' },
     { to: '/admin/reports', icon: FileText, label: 'Reports' },
+    { to: '/meetings', icon: CalendarPlus, label: 'Meetings' },
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
@@ -28,6 +29,7 @@ const Sidebar = () => {
 
   const bossLinks = [
     { to: '/boss', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/meetings', icon: CalendarPlus, label: 'Meetings' },
     { to: '/attendance', icon: Clock, label: 'Attendance' },
     { to: '/leave-management', icon: Calendar, label: 'Leave Management' },
     { to: '/monthly-attendance', icon: TrendingUp, label: 'Monthly Report' },
@@ -39,6 +41,7 @@ const Sidebar = () => {
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/my-reports', icon: FileText, label: 'My Reports' },
     { to: '/leave-requests', icon: Calendar, label: 'Leave Requests' },
+    { to: '/meetings', icon: CalendarPlus, label: 'Meetings' },
     { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/my-profile', icon: User, label: 'My Profile' },
   ];

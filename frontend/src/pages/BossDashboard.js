@@ -18,6 +18,22 @@ const formatDate = (d) => {
   catch { return d; }
 };
 
+const formatDateTimeMyt = (isoString) => {
+  if (!isoString) return '-';
+  try {
+    return new Date(isoString).toLocaleString('en-MY', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return isoString;
+  }
+};
+
 const StatCard = ({ icon: Icon, label, value, color = 'blue', highlight }) => {
   const colors = {
     blue: 'bg-blue-50 text-blue-700',
@@ -61,8 +77,14 @@ export default function BossDashboard() {
   const [loading, setLoading] = useState(true);
   const [autoGenLoading, setAutoGenLoading] = useState(false);
   const [autoGenMsg, setAutoGenMsg] = useState('');
+  const [upcomingMeetings, setUpcomingMeetings] = useState([]);
 
   useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    API.get('/meetings/upcoming')
+      .then(res => setUpcomingMeetings(res.data || []))
+      .catch(() => {});
+  }, []);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -220,6 +242,36 @@ export default function BossDashboard() {
                 Today is a non-working day. Missing report tracking is paused.
               </div>
             )}
+
+            {/* Upcoming Meetings */}
+            <div className="bg-white border border-slate-200 rounded-lg shadow-sm" data-testid="upcoming-meetings-section">
+              <div className="p-4 border-b border-slate-200 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                <h2 className="font-semibold text-slate-900 text-sm">Upcoming Meetings</h2>
+              </div>
+              {upcomingMeetings.length === 0 ? (
+                <div className="p-6 text-center text-slate-500 text-sm">No upcoming meetings</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {upcomingMeetings.slice(0, 5).map(meeting => (
+                    <div key={meeting.id} className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">
+                          {meeting.employee_name || 'Employee'} — {meeting.title}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          With: {meeting.meeting_with} · {formatDateTimeMyt(meeting.start_at)}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">{meeting.purpose}</p>
+                      </div>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 shrink-0">
+                        {meeting.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Charts Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-testid="boss-charts">

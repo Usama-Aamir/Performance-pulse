@@ -2228,6 +2228,73 @@ async def cancel_meeting(meeting_id: str, current_user: dict = Depends(require_a
     updated = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
     return doc_to_dict(updated)
 
+@api_router.post("/cron/dispatch-reminders")
+async def dispatch_reminders(request: Request):
+    cron_secret = request.headers.get("X-Cron-Secret")
+    if not cron_secret or cron_secret != CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    now = datetime.now(timezone.utc)
+    window_start = (now + timedelta(minutes=105)).isoformat()  # now + 1h45m
+    window_end = (now + timedelta(minutes=135)).isoformat()     # now + 2h15m
+    stale_threshold = (now - timedelta(hours=24)).isoformat()
+
+    # Clean up stale scheduled meetings that already started more than 24h ago
+    stale_result = await db.meetings.update_many(
+        {"status": "scheduled", "start_at": {"$lt": stale_threshold}},
+        {"$set": {"status": "completed", "updated_at": now.isoformat()}}
+    )
+
+    # Find meetings due for a 2-hour reminder
+    query = {
+        "status": "scheduled",
+        "reminder_sent": False,
+        "start_at": {"$gte": window_start, "$lte": window_end}
+    }
+    upcoming = await db.meetings.find(query).sort("start_at", 1).to_list(500)
+
+    dispatched = 0
+    failed = 0
+
+    for meeting in upcoming:
+        meeting_id = str(meeting["_id"])
+        start_utc = datetime.fromisoformat(meeting["start_at"])
+        start_myt = start_utc.astimezone(MYT).strftime("%d %b %Y, %I:%M %p")
+        message = (
+            "⏰ Meeting Reminder\n\n"
+            "In 2 hours:\n"
+            f"Employee: {meeting.get('employee_name', '')}\n"
+            f"Meeting with: {meeting.get('meeting_with', '')}\n"
+            f"Purpose: {meeting.get('purpose', '')}\n"
+            f"Time: {start_myt}\n"
+            f"Location: {meeting.get('location') or 'Not specified'}"
+        )
+
+        # Always mark reminder_sent=True so we don't retry on failures
+        await db.meetings.update_one(
+            {"_id": ObjectId(meeting_id)},
+            {"$set": {"reminder_sent": True, "updated_at": now.isoformat()}}
+        )
+
+        try:
+            send_whatsapp(message)
+        except Exception as e:
+            logger.error(f"WhatsApp reminder failed for meeting {meeting_id}: {e}")
+            failed += 1
+
+        try:
+            await _post_meeting_alert(message)
+        except Exception as e:
+            logger.error(f"In-app reminder alert failed for meeting {meeting_id}: {e}")
+
+        dispatched += 1
+
+    return {
+        "dispatched": dispatched,
+        "failed": failed,
+        "stale_completed": stale_result.modified_count
+    }
+
 # ─────────────────────────────────────────────
 # Monthly Attendance Reports
 # ─────────────────────────────────────────────

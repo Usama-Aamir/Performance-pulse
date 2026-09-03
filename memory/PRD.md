@@ -16,6 +16,20 @@
 - **Timezone**: Asia/Kuala_Lumpur (MYT) for all report date logic
 - **Deployment**: Render — Root: `backend/`, Build: `pip install -r requirements.txt`, Start: `uvicorn server:app --host 0.0.0.0 --port $PORT`, runtime: `python-3.11.9`
 
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes | Secret used to sign JWT access/refresh tokens |
+| `MONGO_URI` / `MONGODB_URI` | Yes | MongoDB connection string |
+| `REACT_APP_BACKEND_URL` | Yes | Frontend build-time URL for the backend API |
+| `EMERGENT_LLM_KEY` | Yes | API key for Emergent Object Storage initialization |
+| `COOKIE_SECURE` | Yes (prod) | Set `true` on Render (HTTPS) for cross-origin cookies |
+| `ULTRAMSG_INSTANCE_ID` | Yes | UltraMsg instance ID for WhatsApp notifications |
+| `ULTRAMSG_TOKEN` | Yes | UltraMsg API token |
+| `BOSS_WHATSAPP_NUMBER` | Yes | Boss's WhatsApp number (international format, e.g. `+60123456789`) |
+| `CRON_SECRET` | Yes | Shared secret for `/api/cron/dispatch-reminders` endpoint |
+
 ---
 
 ## Core Users
@@ -65,6 +79,17 @@
 - [x] /my-profile accessible for employee, admin, boss
 - [x] Edit: full_name, department, job_title, phone, profile_remarks
 - [x] Changes persist and update auth context
+
+### Meetings / Appointments (v1.5)
+- [x] Employees schedule meetings via `/meetings` page
+- [x] Fields: title, meeting_with, start_at (MYT), duration_minutes, location, purpose
+- [x] `start_at` stored as UTC ISO string, displayed in MYT
+- [x] Status: scheduled, cancelled, completed
+- [x] Instant WhatsApp notification to boss on create (via UltraMsg)
+- [x] In-app alert posted to "Meeting Alerts" public channel
+- [x] Boss/admin upcoming meetings widget on `/boss` dashboard
+- [x] 2-hour WhatsApp/in-app reminder cron endpoint (`/api/cron/dispatch-reminders`)
+- [x] Cron auto-completes stale scheduled meetings older than 24 hours
 
 ### Admin Reports Management
 - [x] View all reports with filters (employee, date range, status, review status)
@@ -130,6 +155,12 @@
 - POST /api/weekly-summaries/generate
 - POST /api/weekly-summaries/auto-generate
 - GET /api/weekly-summaries/employee/{employee_id}
+- POST /api/meetings
+- GET /api/meetings/my
+- GET /api/meetings/upcoming
+- GET /api/meetings
+- PUT /api/meetings/{id}/cancel
+- POST /api/cron/dispatch-reminders
 
 ---
 
@@ -183,5 +214,31 @@ Completed, In Progress, Pending, Delayed
 7. /admin — Admin Dashboard (stats + pending approvals + recent reports)
 8. /admin/employees — Employee Management table
 9. /admin/reports — Reports Management with filters
-10. /boss — Boss Dashboard (8 stats + 4 Recharts charts + missing today + employee search)
+10. /boss — Boss Dashboard (8 stats + 4 Recharts charts + missing today + employee search + upcoming meetings)
 11. /employee/:id — Employee Profile (admin + boss, report history + weekly summaries)
+12. /meetings — Schedule and manage meetings (employee + admin + boss)
+
+---
+
+## Cron Job Setup (cron-job.org)
+
+Endpoint to trigger every 15 minutes:
+
+```
+POST https://<your-render-backend-url>/api/cron/dispatch-reminders
+```
+
+Required header:
+```
+X-Cron-Secret: <CRON_SECRET>
+```
+
+Suggested cron-job.org settings:
+- **Title**: Performance Pulse — Meeting Reminders
+- **URL**: `https://<your-render-backend-url>/api/cron/dispatch-reminders`
+- **Schedule**: `*/15 * * * *` (every 15 minutes)
+- **HTTP Method**: `POST`
+- **Headers**: `X-Cron-Secret: <CRON_SECRET>`
+- **Timeout**: 60 seconds
+
+> Make sure `CRON_SECRET` is also added to the Render backend environment variables.

@@ -2017,6 +2017,218 @@ async def get_all_leave_requests(
     return [doc_to_dict(r) for r in requests]
 
 # ─────────────────────────────────────────────
+# MEETINGS / APPOINTMENTS
+# ─────────────────────────────────────────────
+
+def _format_myt(dt: datetime) -> str:
+    return dt.astimezone(MYT).strftime("%d %b %Y, %I:%M %p")
+
+def _parse_myt_datetime(value: str) -> datetime:
+    """Parse an ISO datetime string. Naive values are assumed to be in MYT."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=MYT)
+    return dt.astimezone(timezone.utc)
+
+def _build_meeting_alert_text(meeting: dict, action: str = "New Meeting Scheduled") -> str:
+    start_utc = datetime.fromisoformat(meeting["start_at"])
+    lines = [
+        f"📅 {action}",
+        "",
+        f"Employee: {meeting.get('employee_name', '')}",
+        f"Meeting with: {meeting.get('meeting_with', '')}",
+        f"Purpose: {meeting.get('purpose', '')}",
+        f"Date & Time: {_format_myt(start_utc)}",
+        f"Duration: {meeting.get('duration_minutes', 60)} mins",
+        f"Location: {meeting.get('location') or 'Not specified'}"
+    ]
+    return "\n".join(lines)
+
+async def _post_meeting_alert(message_text: str):
+    try:
+        channel = await db.channels.find_one({"name": "Meeting Alerts", "type": "public"})
+        if not channel:
+            return
+        channel_id = str(channel["_id"])
+        now_iso = datetime.now(timezone.utc).isoformat()
+        msg_doc = {
+            "channel_id": ObjectId(channel_id),
+            "sender_id": "system",
+            "sender_name": "Meeting Alerts",
+            "sender_role": "system",
+            "content": message_text,
+            "attachment": None,
+            "reactions": [],
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "edited_at": None,
+            "deleted": False,
+            "deleted_at": None,
+            "deleted_by": None
+        }
+        result = await db.messages.insert_one(msg_doc)
+        msg_doc["id"] = str(result.inserted_id)
+        msg_doc["channel_id"] = channel_id
+        msg_doc.pop("_id", None)
+        await ws_manager.broadcast(channel_id, {"type": "new_message", "message": msg_doc})
+    except Exception as e:
+        logger.error(f"Failed to post meeting alert: {e}")
+
+@api_router.post("/meetings")
+async def create_meeting(request: Request, current_user: dict = Depends(require_active)):
+    body = await request.json()
+
+    title = (body.get("title") or "").strip()
+    meeting_with = (body.get("meeting_with") or "").strip()
+    purpose = (body.get("purpose") or "").strip()
+    start_at_raw = body.get("start_at")
+    duration_minutes = body.get("duration_minutes", 60)
+    location = (body.get("location") or "").strip() or None
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not meeting_with:
+        raise HTTPException(status_code=400, detail="Meeting with is required")
+    if not purpose:
+        raise HTTPException(status_code=400, detail="Purpose is required")
+    if not start_at_raw:
+        raise HTTPException(status_code=400, detail="Start time is required")
+
+    try:
+        duration_minutes = int(duration_minutes)
+        if duration_minutes < 1:
+            duration_minutes = 60
+    except Exception:
+        duration_minutes = 60
+
+    try:
+        start_utc = _parse_myt_datetime(start_at_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_at datetime format")
+
+    now_utc = datetime.now(timezone.utc)
+    if start_utc < now_utc:
+        raise HTTPException(status_code=400, detail="Meeting start time must be in the future")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    meeting_doc = {
+        "employee_id": current_user["id"],
+        "employee_name": current_user.get("full_name", ""),
+        "title": title,
+        "meeting_with": meeting_with,
+        "start_at": start_utc.isoformat(),
+        "duration_minutes": duration_minutes,
+        "location": location,
+        "purpose": purpose,
+        "status": "scheduled",
+        "whatsapp_notified": False,
+        "reminder_sent": False,
+        "created_at": now_iso,
+        "updated_at": now_iso
+    }
+
+    result = await db.meetings.insert_one(meeting_doc)
+    inserted_id = str(result.inserted_id)
+    meeting_doc["id"] = inserted_id
+
+    # WhatsApp notification to boss — non-fatal
+    try:
+        alert_text = _build_meeting_alert_text(meeting_doc)
+        send_whatsapp(alert_text)
+        await db.meetings.update_one(
+            {"_id": ObjectId(inserted_id)},
+            {"$set": {"whatsapp_notified": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        meeting_doc["whatsapp_notified"] = True
+    except Exception as e:
+        logger.error(f"WhatsApp notification failed for meeting {inserted_id}: {e}")
+
+    # In-app alert in Meeting Alerts channel — non-fatal
+    try:
+        await _post_meeting_alert(_build_meeting_alert_text(meeting_doc))
+    except Exception as e:
+        logger.error(f"Meeting alert post failed for meeting {inserted_id}: {e}")
+
+    return meeting_doc
+
+@api_router.get("/meetings/my")
+async def get_my_meetings(current_user: dict = Depends(require_active)):
+    meetings = await db.meetings.find(
+        {"employee_id": current_user["id"]}
+    ).sort("start_at", -1).to_list(500)
+    return [doc_to_dict(m) for m in meetings]
+
+@api_router.get("/meetings/upcoming")
+async def get_upcoming_meetings(current_user: dict = Depends(require_admin)):
+    now_iso = datetime.now(timezone.utc).isoformat()
+    meetings = await db.meetings.find(
+        {"status": "scheduled", "start_at": {"$gte": now_iso}}
+    ).sort("start_at", 1).limit(10).to_list(10)
+    return [doc_to_dict(m) for m in meetings]
+
+@api_router.get("/meetings")
+async def list_meetings(
+    employee_id: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: dict = Depends(require_admin)
+):
+    query = {}
+    if employee_id:
+        query["employee_id"] = employee_id
+    if status:
+        query["status"] = status
+
+    if date_from or date_to:
+        date_q = {}
+        if date_from:
+            try:
+                start_local = datetime.fromisoformat(date_from)
+                if start_local.tzinfo is None:
+                    start_local = start_local.replace(tzinfo=MYT)
+                date_q["$gte"] = start_local.astimezone(timezone.utc).isoformat()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid date_from")
+        if date_to:
+            try:
+                end_local = datetime.fromisoformat(date_to)
+                if end_local.tzinfo is None:
+                    end_local = end_local.replace(tzinfo=MYT)
+                date_q["$lte"] = end_local.astimezone(timezone.utc).isoformat()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid date_to")
+        query["start_at"] = date_q
+
+    meetings = await db.meetings.find(query).sort("start_at", -1).to_list(500)
+    return [doc_to_dict(m) for m in meetings]
+
+@api_router.put("/meetings/{meeting_id}/cancel")
+async def cancel_meeting(meeting_id: str, current_user: dict = Depends(require_active)):
+    try:
+        meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid meeting ID")
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    if current_user["role"] not in ["admin", "boss"] and meeting.get("employee_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if meeting.get("status") != "scheduled":
+        raise HTTPException(status_code=400, detail="Only scheduled meetings can be cancelled")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.meetings.update_one(
+        {"_id": ObjectId(meeting_id)},
+        {"$set": {"status": "cancelled", "updated_at": now_iso}}
+    )
+
+    updated = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    return doc_to_dict(updated)
+
+# ─────────────────────────────────────────────
 # Monthly Attendance Reports
 # ─────────────────────────────────────────────
 
